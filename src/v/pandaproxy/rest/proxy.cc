@@ -24,6 +24,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/http/api_docs.hh>
+#include <seastar/http/exception.hh>
 
 namespace pandaproxy::rest {
 
@@ -41,9 +42,20 @@ auto wrap(Handler h) {
             // Will throw 400 & 401 if auth fails
             auto auth_result = rq.service().authenticator().authenticate(
               *rq.req);
-            // Will throw 403 if user enabled HTTP Basic Auth but
-            // did not give the authorization header.
-            auth_result.require_authenticated();
+            try {
+                auth_result.require_authenticated();
+            } catch (const ss::httpd::base_exception& ex) {
+                // The failure from require_authenticated() will throw 401
+                // instead of 403. So convert the exception to 403.
+                if (
+                  ex.status() == ss::httpd::reply::status_type::unauthorized) {
+                    throw ss::httpd::base_exception(
+                      ex.what(), ss::httpd::reply::status_type::forbidden);
+                } else {
+                    // Something else went wrong
+                    throw;
+                }
+            }
             rq.user = credential_t{
               auth_result.get_username(), auth_result.get_password()};
         }
