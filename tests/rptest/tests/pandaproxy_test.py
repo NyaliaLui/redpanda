@@ -950,7 +950,7 @@ class PandaProxyBasicAuthTest(RedpandaTest):
             "Basic " + self.encode_base64("panda", self.password)
         }
         brokers = self._get_brokers(headers=headers).json()
-        assert brokers['error_code'] == 40101
+        assert brokers['error_code'] == 401
 
         # Super user has full access to Kafka API
         username, password, _ = self.redpanda.SUPERUSER_CREDENTIALS
