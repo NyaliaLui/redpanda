@@ -58,5 +58,6 @@ private:
     ss::gate _gate;
     ss::sharded<kafka_client_cache> _cache;
     ss::timer<ss::lowres_clock> _clean_timer;
+    ss::timer<ss::lowres_clock> _evict_timer;
 };
 } // namespace pandaproxy

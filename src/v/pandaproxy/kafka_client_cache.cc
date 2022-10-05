@@ -20,10 +20,14 @@
 namespace pandaproxy {
 
 kafka_client_cache::kafka_client_cache(
-  YAML::Node const& cfg, size_t max_size, std::chrono::milliseconds keep_alive)
+  YAML::Node const& cfg,
+  size_t max_size,
+  std::chrono::milliseconds keep_alive,
+  ss::timer<ss::lowres_clock>& evict_timer)
   : _config{cfg}
   , _cache_max_size{max_size}
-  , _keep_alive{keep_alive} {}
+  , _keep_alive{keep_alive}
+  , _evict_timer{evict_timer} {}
 
 client_ptr kafka_client_cache::make_client(
   credential_t user, config::rest_authn_method authn_method) {
@@ -59,6 +63,8 @@ client_ptr kafka_client_cache::fetch_or_insert(
                 vlog(plog.debug, "Cache size reached, evicting {}", item.key);
                 inner_list.pop_back();
                 _evicted_items.push_back(std::move(item));
+                // Trigger the eviction process
+                _evict_timer.rearm(ss::lowres_clock::now());
             }
         }
 
@@ -129,7 +135,9 @@ ss::future<> kafka_client_cache::clean_stale_clients() {
     };
     auto& inner_list = _cache.get<underlying_list>();
     co_await remove_client_if(inner_list, is_expired(_keep_alive));
+}
 
+ss::future<> kafka_client_cache::evict_clients() {
     constexpr auto always = [](auto&&) { return true; };
     co_await remove_client_if(_evicted_items, always);
 }
