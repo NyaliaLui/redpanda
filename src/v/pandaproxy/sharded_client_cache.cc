@@ -43,26 +43,18 @@ ss::future<> sharded_client_cache::start(
         });
     });
 
-    _evict_timer.set_callback([this] {
-        ssx::spawn_with_gate(_gate, [this] {
-            return _cache.invoke_on_all(
-              _smp_opts,
-              [](kafka_client_cache& cache) { return cache.evict_clients(); });
-        });
-    });
-
     return _cache
       .start(
         proxy_client_cfg,
         client_cache_max_size,
         client_keep_alive,
-        std::reference_wrapper(_evict_timer))
+        std::reference_wrapper(_gate),
+        std::reference_wrapper(_eviction_lock))
       .then([this] { _clean_timer.arm(clean_timer_period); });
 }
 
 ss::future<> sharded_client_cache::stop() {
     _clean_timer.cancel();
-    _evict_timer.cancel();
     co_await _gate.close();
     co_await _cache.stop();
 }

@@ -17,6 +17,7 @@
 #include "pandaproxy/logger.h"
 #include "pandaproxy/rest/configuration.h"
 #include "pandaproxy/types.h"
+#include "utils/mutex.h"
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/lowres_clock.hh>
@@ -58,6 +59,6 @@ private:
     ss::gate _gate;
     ss::sharded<kafka_client_cache> _cache;
     ss::timer<ss::lowres_clock> _clean_timer;
-    ss::timer<ss::lowres_clock> _evict_timer;
+    mutex _eviction_lock;
 };
 } // namespace pandaproxy

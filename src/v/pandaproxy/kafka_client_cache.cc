@@ -23,11 +23,13 @@ kafka_client_cache::kafka_client_cache(
   YAML::Node const& cfg,
   size_t max_size,
   std::chrono::milliseconds keep_alive,
-  ss::timer<ss::lowres_clock>& evict_timer)
+  ss::gate& g,
+  mutex& eviction_lock)
   : _config{cfg}
   , _cache_max_size{max_size}
   , _keep_alive{keep_alive}
-  , _evict_timer{evict_timer} {}
+  , _gate{g}
+  , _eviction_lock{eviction_lock} {}
 
 client_ptr kafka_client_cache::make_client(
   credential_t user, config::rest_authn_method authn_method) {
@@ -62,9 +64,22 @@ client_ptr kafka_client_cache::fetch_or_insert(
                 auto item = inner_list.back();
                 vlog(plog.debug, "Cache size reached, evicting {}", item.key);
                 inner_list.pop_back();
-                _evicted_items.push_back(std::move(item));
+                ssx::spawn_with_gate(_gate, [this, item{std::move(item)}] {
+                    return _eviction_lock.with([item{std::move(item)}] {
+                        return item.client->stop().handle_exception(
+                          [k{item.key}](std::exception_ptr ex) {
+                              // The stop failed
+                              vlog(
+                                plog.debug,
+                                "Stop on evicted {} already happened: {}",
+                                k,
+                                ex);
+                          });
+                    });
+                });
+                // _evicted_items.push_back(std::move(item));
                 // Trigger the eviction process
-                _evict_timer.rearm(ss::lowres_clock::now());
+                // _evict_timer.rearm(ss::lowres_clock::now());
             }
         }
 
@@ -137,16 +152,16 @@ ss::future<> kafka_client_cache::clean_stale_clients() {
     co_await remove_client_if(inner_list, is_expired(_keep_alive));
 }
 
-ss::future<> kafka_client_cache::evict_clients() {
-    constexpr auto always = [](auto&&) { return true; };
-    co_await remove_client_if(_evicted_items, always);
-}
+// ss::future<> kafka_client_cache::evict_clients() {
+//     constexpr auto always = [](auto&&) { return true; };
+//     co_await remove_client_if(_evicted_items, always);
+// }
 
 ss::future<> kafka_client_cache::stop() {
     constexpr auto always = [](auto&&) { return true; };
     auto& inner_list = _cache.get<underlying_list>();
     co_await remove_client_if(inner_list, always);
-    co_await remove_client_if(_evicted_items, always);
+    // co_await remove_client_if(_evicted_items, always);
 }
 
 size_t kafka_client_cache::size() const { return _cache.size(); }

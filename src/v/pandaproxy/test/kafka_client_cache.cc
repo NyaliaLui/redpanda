@@ -14,6 +14,7 @@
 #include "kafka/client/configuration.h"
 #include "pandaproxy/types.h"
 #include "ssx/future-util.h"
+#include "utils/mutex.h"
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
@@ -30,27 +31,24 @@ using namespace std::chrono_literals;
 namespace pandaproxy {
 class test_client_cache : public kafka_client_cache {
 public:
-    explicit test_client_cache(
-      size_t max_size, ss::timer<ss::lowres_clock>& evict_timer)
+    explicit test_client_cache(size_t max_size, ss::gate& g, mutex& l)
       : kafka_client_cache(
         to_yaml(kafka::client::configuration{}, config::redact_secrets::no),
         max_size,
         1000ms,
-        evict_timer) {}
+        g,
+        l) {}
 };
 
 struct cache_wrapper {
-    ss::timer<ss::lowres_clock> evict_timer;
+    // ss::timer<ss::lowres_clock> evict_timer;
     ss::gate g;
+    mutex l;
     test_client_cache client_cache;
 
     cache_wrapper(size_t max_size)
-      : client_cache{max_size, std::reference_wrapper(evict_timer)} {
-        evict_timer.set_callback([this] {
-            ssx::spawn_with_gate(
-              g, [this] { return client_cache.evict_clients(); });
-        });
-    }
+      : client_cache{
+        max_size, std::reference_wrapper(g), std::reference_wrapper(l)} {}
 };
 } // namespace pandaproxy
 
