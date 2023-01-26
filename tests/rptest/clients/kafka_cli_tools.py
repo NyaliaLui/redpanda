@@ -267,6 +267,10 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
             args.append("--execute")
         elif operation == "verify":
             args.append("--verify")
+            args.append("--preserve-throttles")
+        elif operation == "cancel":
+            args.append("--cancel")
+            args.append("--preserve-throttles")
         else:
             raise NotImplementedError(f"Unknown operation: {operation}")
 
@@ -291,6 +295,13 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
             return "is still in progress." not in output
 
         wait_until(do_reassign_partitions, timeout_sec=20, backoff_sec=1)
+
+        return output.splitlines()
+
+    def cancel_reassign_partitions(self, reassignments: dict):
+        output = self.reassign_partitions(reassignments=reassignments,
+                                          operation="cancel",
+                                          write_reassignments_to_disk=False)
 
         return output.splitlines()
 
@@ -420,8 +431,6 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
                 raise AuthenticationError(e.output)
             if "ClusterAuthorizationException: Cluster authorization failed" in e.output:
                 raise ClusterAuthorizationError(e.output)
-            if e.output.startswith("Status of partition reassignment:"):
-                return e.output
             raise
 
     def _script(self, script):
