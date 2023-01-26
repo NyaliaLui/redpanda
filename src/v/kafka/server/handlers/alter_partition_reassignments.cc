@@ -143,8 +143,10 @@ partitions_request_iterator validate_partitions(
       });
 
     // Store any invalid partitions in the response
-    topic_response.partitions = std::move(invalid_partitions);
-    *resp_it = std::move(topic_response);
+    if (!invalid_partitions.empty()) {
+        topic_response.partitions = std::move(invalid_partitions);
+        *resp_it = std::move(topic_response);
+    }
 
     return valid_partitions_end;
 }
