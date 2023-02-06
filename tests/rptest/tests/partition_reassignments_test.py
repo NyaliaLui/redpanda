@@ -10,6 +10,7 @@ import random
 import json
 import re
 import subprocess
+import time
 
 from ducktape.mark import ignore
 from ducktape.tests.test import TestLoggerMaker
@@ -49,9 +50,18 @@ def check_execute_reassign_partitions(lines: list[str], reassignments: dict,
 
     # The last line should list topic partitions
     line = lines.pop().strip()
-    assert line.startswith("Successfully started partition reassignments for ")
-    topic_partitions = line.removeprefix(
-        "Successfully started partition reassignments for ").split(',')
+    topic_partitions = None
+    if len(partition_idxs) > 1:
+        assert line.startswith(
+            "Successfully started partition reassignments for ")
+        topic_partitions = line.removeprefix(
+            "Successfully started partition reassignments for ").split(',')
+    else:
+        assert line.startswith(
+            "Successfully started partition reassignment for ")
+        topic_partitions = line.removeprefix(
+            "Successfully started partition reassignment for ").split(',')
+
     tp_re = re.compile(r"^(?P<topic>[a-z\-]+?)-(?P<pid>[0-9]+?)$")
     for tp in topic_partitions:
         tp_match = tp_re.match(tp)
@@ -69,7 +79,7 @@ def check_execute_reassign_partitions(lines: list[str], reassignments: dict,
     current_assignment = json.loads(lines.pop().strip())
     assert type(current_assignment) == type({}), "Expected JSON object"
 
-    # Then another set of exact strings
+    # Then another exact string
     assert len(lines.pop()) == 0
     assert lines.pop().strip() == "Current partition replica assignment"
 
@@ -92,7 +102,6 @@ def check_verify_reassign_partitions(lines: list[str], reassignments: dict,
     #        - An InvalidConfigurationException because the kafka script attempts to alter broker configs
     #          on a per-node basis which Redpanda does not support
 
-    # Reverse the order so we do not have to look at the entire Java exception
     lines.reverse()
 
     # First line is an exact string
@@ -139,10 +148,18 @@ def check_cancel_reassign_partitions(lines: list[str], reassignments: dict,
 
     # The last line should list topic partitions
     line = lines.pop().strip()
-    assert line.startswith(
-        "Successfully cancelled partition reassignments for: ")
-    topic_partitions = line.removeprefix(
-        "Successfully cancelled partition reassignments for: ").split(',')
+    topic_partitions = None
+    if len(partition_idxs) > 1:
+        assert line.startswith(
+            "Successfully cancelled partition reassignments for: ")
+        topic_partitions = line.removeprefix(
+            "Successfully cancelled partition reassignments for: ").split(',')
+    else:
+        assert line.startswith(
+            "Successfully cancelled partition reassignment for: ")
+        topic_partitions = line.removeprefix(
+            "Successfully cancelled partition reassignment for: ").split(',')
+
     tp_re = re.compile(r"^(?P<topic>[a-z\-]+?)-(?P<pid>[0-9]+?)$")
     for tp in topic_partitions:
         tp_match = tp_re.match(tp)
@@ -338,6 +355,15 @@ class PartitionReassignmentsTest(RedpandaTest):
         )
         try_even_replication_factor(reassignments)
 
+    def make_producer(self, topic_name, msg_size=512 * 1024, msg_count=1024):
+        prod = RpkProducer(self.test_context,
+                           self.redpanda,
+                           topic_name,
+                           msg_size=msg_size,
+                           msg_count=msg_count)
+        prod.start()
+        return prod
+
     @cluster(num_nodes=6)
     def test_reassignments_cancel(self):
         initial_assignments = self.client().describe_topics()
@@ -352,20 +378,9 @@ class PartitionReassignmentsTest(RedpandaTest):
         # something to cancel
         self.redpanda.set_cluster_config({"raft_learner_recovery_rate": "10"})
 
-        def make_producer(topic_name, msg_size, msg_count):
-            prod = RpkProducer(self.test_context,
-                               self.redpanda,
-                               topic_name,
-                               msg_size=msg_size,
-                               msg_count=msg_count)
-            prod.start()
-            return prod
-
-        msg_size = 512 * 1024
-        msg_count = 1024
         producers = [
-            make_producer(self.topics[0].name, msg_size, msg_count),
-            make_producer(self.topics[1].name, msg_size, msg_count)
+            self.make_producer(self.topics[0].name),
+            self.make_producer(self.topics[1].name)
         ]
 
         reassignments_json = self.generate_reassignments(
@@ -391,6 +406,134 @@ class PartitionReassignmentsTest(RedpandaTest):
 
         for prod in producers:
             prod.wait()
+
+    @cluster(num_nodes=5)
+    def test_reassignments_on_stopped_nodes(self):
+        initial_assignments = self.client().describe_topics()
+        self.logger.debug(f"Initial assignments: {initial_assignments}")
+        for assignment in initial_assignments:
+            self.logger.debug(f'Initial {assignment}')
+
+        all_node_idx = [
+            self.redpanda.node_id(node) for node in self.redpanda.nodes
+        ]
+        self.logger.debug(f"All node idx: {all_node_idx}")
+
+        reassignments_json = {"version": 1, "partitions": []}
+        log_dirs = ["any" for _ in range(self.REPLICAS_COUNT)]
+
+        assignment = initial_assignments[0]
+        assert len(assignment.partitions) > 0
+        partition = assignment.partitions[0]
+        stop_node_id = self.get_missing_node_idx(all_node_idx,
+                                                 partition.replicas)
+        replaced_node_id = partition.replicas[0]
+        partition.replicas[0] = stop_node_id
+        reassignments_json["partitions"].append({
+            "topic": assignment.name,
+            "partition": partition.id,
+            "replicas": partition.replicas,
+            "log_dirs": log_dirs
+        })
+        self.logger.debug(f"Assignment with stop node {reassignments_json}")
+
+        stopped_node = next(
+            filter(lambda n: self.redpanda.node_id(n) == stop_node_id,
+                   self.redpanda.nodes))
+        self.logger.debug(f"Stopping node {stop_node_id}")
+        self.redpanda.stop_node(stopped_node)
+
+        self.logger.debug(
+            "Execute reassignment with stopped node in the replica set")
+        kafka_tools = KafkaCliTools(self.redpanda)
+
+        # Either two of the following errors could surface first from the Kafka CLI.
+        # The unknown broker error comes from Kafka's ReassignPartitionsCommand.scala
+        no_broker_re = re.compile(r"^Error: Unknown broker id [0-9]+.*")
+        # Failed connection comes from Kafka's NetworkClient.java
+        no_connection_re = re.compile(
+            r".*Connection to node [0-9]+ .* could not be established.*")
+
+        try:
+            kafka_tools.execute_reassign_partitions(
+                reassignments=reassignments_json)
+            raise Exception(
+                f'AlterPartition w/ stopped node {stop_node_id} passed. Expected fail.'
+            )
+        except subprocess.CalledProcessError as e:
+            no_broker_m = no_broker_re.match(e.output)
+            no_conn_m = no_connection_re.match(e.output)
+            assert no_broker_m is not None or no_conn_m is not None
+
+        self.logger.debug(f"Restarting node {stop_node_id}")
+        self.redpanda.restart_nodes([stopped_node])
+
+        # Set a low throttle to slowdown partition move enough that there is
+        # something to cancel
+        self.redpanda.set_cluster_config({"raft_learner_recovery_rate": "10"})
+
+        producer = self.make_producer(assignment.name)
+
+        time.sleep(1)
+
+        # Now test what happens when we cancel a request such that one of the nodes
+        # in the restored replica set is down
+        # So, let's stop a node while the partition move is running
+        output = kafka_tools.execute_reassign_partitions(
+            reassignments=reassignments_json)
+        self.logger.debug(output)
+        check_execute_reassign_partitions(output, reassignments_json,
+                                          self.logger)
+
+        replaced_node = next(
+            filter(lambda n: self.redpanda.node_id(n) == replaced_node_id,
+                   self.redpanda.nodes))
+        self.logger.debug(f"Stopping node {replaced_node_id}")
+        self.redpanda.stop_node(replaced_node)
+
+        self.logger.debug(
+            "sleeping now -- look at redpanda logs for something")
+        time.sleep(1)
+
+        # try:
+        # Now cancel the reassignment. The restored replica set will include
+        # the replaced node that was stopped above
+        output = kafka_tools.cancel_reassign_partitions(
+            reassignments=reassignments_json)
+        self.logger.debug(f'Nyalia TOPIC {assignment.name} -- {output}')
+        check_cancel_reassign_partitions(output, reassignments_json,
+                                         self.logger)
+        #     raise Exception(
+        #         f'AlterPartition cancel w/ stopped node {replaced_node_id} passed. Expected fail.'
+        #     )
+        # except subprocess.CalledProcessError as e:
+        #     no_broker_m = no_broker_re.match(e.output)
+        #     no_conn_m = no_connection_re.match(e.output)
+        #     self.logger.debug(f'Nyalia {no_broker_m} - {no_conn_m} -- out {e.output}')
+        #     if no_broker_m is not None or no_conn_m is not None:
+        #         pass
+        #     else:
+        #         raise
+
+        # Reset throttle rate so the move can complete
+        # self.redpanda.set_cluster_config(
+        #     {"raft_learner_recovery_rate": "100000000"})
+
+        after_cancel_assignments = self.client().describe_topics()
+        for assignment in after_cancel_assignments:
+            self.logger.debug(f'After cancel {assignment}')
+
+        output = kafka_tools.verify_reassign_partitions(
+            reassignments=reassignments_json)
+        nodes_as_str = [str(n) for n in all_node_idx]
+        check_verify_reassign_partitions(output, reassignments_json,
+                                         nodes_as_str, self.logger)
+
+        after_verify_assignments = self.client().describe_topics()
+        for assignment in after_verify_assignments:
+            self.logger.debug(f'After Verify {assignment}')
+
+        producer.wait()
 
 
 class PartitionReassignmentsACLsTest(RedpandaTest):
