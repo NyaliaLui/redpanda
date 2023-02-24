@@ -12,7 +12,7 @@ import requests
 from rptest.services.cluster import cluster
 from rptest.tests.redpanda_test import RedpandaTest
 from rptest.services.admin import Admin
-from rptest.services.redpanda import RedpandaService, ResourceSettings, LoggingConfig, SchemaRegistryConfig
+from rptest.services.redpanda import RedpandaService, ResourceSettings, LoggingConfig, SchemaRegistryConfig, PandaproxyConfig
 from ducktape.utils.util import wait_until
 
 log_config = LoggingConfig('info',
@@ -39,11 +39,12 @@ class RestartServicesTest(RedpandaTest):
             extra_rp_conf={"auto_create_topics_enabled": False},
             resource_settings=ResourceSettings(num_cpus=1),
             log_config=log_config,
+            pandaproxy_config=PandaproxyConfig(),
             schema_registry_config=SchemaRegistryConfig(),
             **kwargs)
 
     @cluster(num_nodes=3)
-    def test_restart_services(self):
+    def test_restart_services_errors(self):
         admin = Admin(self.redpanda)
 
         # Failure checks
@@ -60,6 +61,17 @@ class RestartServicesTest(RedpandaTest):
         except requests.exceptions.HTTPError as ex:
             self.logger.debug(ex)
             assert ex.response.status_code == requests.codes.not_found
+
+    @cluster(num_nodes=3)
+    def test_restart_services_success(self):
+        admin = Admin(self.redpanda)
+
+        # Success checks
+        self.logger.debug("Check http proxy restart")
+        result_raw = admin.redpanda_services_restart(rp_service='http-proxy')
+        check_service_restart(self.redpanda, "Restarting the http proxy")
+        self.logger.debug(result_raw)
+        assert result_raw.status_code == requests.codes.ok
 
         self.logger.debug("Check schema registry restart")
         result_raw = admin.redpanda_services_restart(
