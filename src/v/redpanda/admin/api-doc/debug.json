@@ -395,6 +395,32 @@
               ]
             }
           ]
+        },
+        {
+            "path": "/v1/debug/bundle/actions/create",
+            "operations": [
+                {
+                    "method": "POST",
+                    "summary": "Start creating a debug bundle",
+                    "type": "void",
+                    "nickname": "start_debug_bundle",
+                    "produces": [
+                        "application/json"
+                    ],
+                    "parameters": [],
+                    "responses": {
+                        "202": {
+                            "description": "Successfully started debug bundle"
+                        },
+                        "429": {
+                            "description": "Bundle creation is already running"
+                        },
+                        "500": {
+                            "description": "Internal Server error"
+                        }
+                    }
+                }
+            ]
         }
     ],
     "models": {
