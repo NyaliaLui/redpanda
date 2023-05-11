@@ -207,7 +207,9 @@ private:
      */
     template<auth_level required_auth, bool peek_auth = false, typename F>
     void register_route_raw_async(
-      ss::httpd::path_description const& path, F handler) {
+      ss::httpd::path_description const& path,
+      F handler,
+      ss::sstring content_type = "json") {
         auto wrapped_handler = [this, handler](
                                  std::unique_ptr<ss::http::request> req,
                                  std::unique_ptr<ss::http::reply> rep)
@@ -240,7 +242,7 @@ private:
         };
 
         auto handler_f = new ss::httpd::function_handler{
-          std::move(wrapped_handler), "json"};
+          std::move(wrapped_handler), content_type};
 
         path.set(_server._routes, handler_f);
     }
@@ -460,6 +462,8 @@ private:
       const request_auth_result&);
     ss::future<ss::json::json_return_type>
       check_debug_bundle_status_handler(std::unique_ptr<ss::http::request>);
+    ss::future<std::unique_ptr<ss::http::reply>> get_debug_bundle_handler(
+      std::unique_ptr<ss::http::request>, std::unique_ptr<ss::http::reply>);
 
     ss::future<> throw_on_error(
       ss::http::request& req,

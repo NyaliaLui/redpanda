@@ -18,11 +18,13 @@
 #include "vlog.h"
 
 #include <seastar/http/exception.hh>
+#include <seastar/http/file_handler.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/process.hh>
 
 #include <fmt/format.h>
 
+#include <filesystem>
 #include <optional>
 
 static ss::logger bundle_log{"debug_bundle"};
@@ -237,4 +239,57 @@ ss::sstring detail::make_bundle_filename(
   const std::filesystem::path& write_dir, ss::sstring& filename) {
     auto bundle_name = _write_dir / filename;
     return bundle_name.string();
+}
+
+void detail::throw_if_bundle_dne(
+  debug_bundle_status bundle_status,
+  const std::filesystem::path& write_dir,
+  ss::sstring& filename) {
+    auto bundle_name = detail::make_bundle_filename(write_dir, filename);
+    if (!std::filesystem::exists(bundle_name.c_str())) {
+        if (bundle_status == debug_bundle_status::running) {
+            throw ss::httpd::not_found_exception(
+              "The debug bundle is running but not yet ready");
+        } else {
+            throw ss::httpd::base_exception(
+              "The debug bundle is not running or it is not on disk",
+              ss::http::reply::status_type::gone);
+        }
+    } else {
+        if (bundle_status == debug_bundle_status::running) {
+            throw ss::httpd::not_found_exception(
+              "The debug bundle is running but not yet ready");
+        }
+    }
+}
+
+ss::future<std::unique_ptr<ss::http::reply>> debug_bundle::fetch_bundle(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep) {
+    if (ss::this_shard_id() != debug_bundle_shard_id) {
+        co_return co_await container().invoke_on(
+          debug_bundle_shard_id,
+          [req{std::move(req)}, rep{std::move(rep)}](debug_bundle& b) mutable {
+              return b.fetch_bundle(std::move(req), std::move(rep));
+          });
+    }
+
+    debug_bundle_status bundle_status{debug_bundle_status::not_running};
+    auto bundle_name = req->param["filename"];
+    if (bundle_name == _in_progress_filename) {
+        bundle_status = co_await get_status();
+    }
+    detail::throw_if_bundle_dne(bundle_status, get_write_dir(), bundle_name);
+
+    ss::httpd::file_handler upload_handle{
+      detail::make_bundle_filename(get_write_dir(), bundle_name),
+      nullptr,
+      false};
+    co_return co_await ss::do_with(
+      std::move(upload_handle),
+      std::move(req),
+      std::move(rep),
+      [](auto& uploader, auto& req, auto& rep) mutable {
+          return uploader.handle({}, std::move(req), std::move(rep));
+      });
 }

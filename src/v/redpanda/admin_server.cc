@@ -120,7 +120,6 @@
 
 #include <charconv>
 #include <chrono>
-#include <filesystem>
 #include <limits>
 #include <regex>
 #include <stdexcept>
@@ -4169,6 +4168,15 @@ void admin_server::register_debug_routes() {
         -> ss::future<ss::json::json_return_type> {
           return check_debug_bundle_status_handler(std::move(req));
       });
+
+    register_route_raw_async<user>(
+      seastar::httpd::debug_json::get_debug_bundle,
+      [this](
+        std::unique_ptr<ss::http::request> req,
+        std::unique_ptr<ss::http::reply> rep) {
+          return get_debug_bundle_handler(std::move(req), std::move(rep));
+      },
+      "zip");
 }
 
 ss::future<ss::json::json_return_type>
@@ -4892,25 +4900,16 @@ admin_server::check_debug_bundle_status_handler(
     vlog(logger.info, "Getting debug bundle status...");
     auto bundle_status = co_await _debug_bundle.local().get_status();
     auto bundle_name = req->param["filename"];
-    bundle_name = detail::make_bundle_filename(
-      _debug_bundle.local().get_write_dir(), bundle_name);
-    if (!std::filesystem::exists(bundle_name)) {
-        if (bundle_status == debug_bundle_status::running) {
-            throw ss::httpd::not_found_exception(
-              "The debug bundle is running but not yet ready");
-        } else {
-            throw ss::httpd::base_exception(
-              "The debug bundle is not running or it is not on disk",
-              ss::http::reply::status_type::gone);
-        }
-    } else {
-        // It is possible for the bundle file to be on disk but RPK did not yet
-        // finish writing to it yet (i.e., status is "running"). In this
-        // situation, return error code 404
-        if (bundle_status == debug_bundle_status::running) {
-            throw ss::httpd::not_found_exception(
-              "The debug bundle is running but not yet ready");
-        }
-    }
+    detail::throw_if_bundle_dne(
+      bundle_status, _debug_bundle.local().get_write_dir(), bundle_name);
     co_return ss::json::json_return_type(ss::json::json_void());
+}
+
+ss::future<std::unique_ptr<ss::http::reply>>
+admin_server::get_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep) {
+    vlog(logger.info, "Fetching recent debug bundle...");
+    co_return co_await _debug_bundle.local().fetch_bundle(
+      std::move(req), std::move(rep));
 }

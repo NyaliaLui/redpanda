@@ -19,8 +19,11 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/http/reply.hh>
+#include <seastar/http/request.hh>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 static constexpr ss::shard_id debug_bundle_shard_id = 0;
@@ -67,6 +70,9 @@ public:
     ss::future<> stop();
     ss::future<debug_bundle_status> get_status();
     const std::filesystem::path& get_write_dir() { return _write_dir; }
+    ss::future<std::unique_ptr<ss::http::reply>> fetch_bundle(
+      std::unique_ptr<ss::http::request> req,
+      std::unique_ptr<ss::http::reply> rep);
 
 private:
     debug_bundle_status _status;
@@ -80,4 +86,9 @@ private:
 namespace detail {
 ss::sstring make_bundle_filename(
   const std::filesystem::path& write_dir, ss::sstring& filename);
-}
+
+void throw_if_bundle_dne(
+  debug_bundle_status bundle_status,
+  const std::filesystem::path& write_dir,
+  ss::sstring& filename);
+} // namespace detail
