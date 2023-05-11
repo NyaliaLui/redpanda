@@ -11,6 +11,9 @@
 
 #include "config/configuration.h"
 
+#include <filesystem>
+#include <unistd.h>
+
 namespace config {
 
 node_config::node_config() noexcept
@@ -169,6 +172,26 @@ node_config::node_config() noexcept
       "injection",
       {.visibility = visibility::tunable},
       std::nullopt)
+  , debug_bundle_write_dir(
+      *this,
+      "debug_bundle_write_dir",
+      "The full path to the directory where debug bundle files are stored "
+      "(default: /tmp)",
+      {.visibility = visibility::user},
+      "/tmp",
+      [](const std::filesystem::path& write_dir) -> std::optional<ss::sstring> {
+          if (!std::filesystem::exists(write_dir)) {
+              return ss::sstring{"Debug bundle write dir does not exist"};
+          }
+
+          // access is apart of unistd.h
+          if (access(write_dir.c_str(), R_OK | W_OK) != 0) {
+              return ss::sstring{"Debug bundle write dir does not have read "
+                                 "and write permissions"};
+          }
+
+          return std::nullopt;
+      })
   , _advertised_rpc_api(
       *this,
       "advertised_rpc_api",

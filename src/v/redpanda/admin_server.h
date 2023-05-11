@@ -45,6 +45,8 @@ enum class service_kind {
     schema_registry,
 };
 
+class debug_bundle;
+
 namespace detail {
 // Helper for static_assert-ing false below.
 template<auto V>
@@ -72,7 +74,8 @@ public:
       pandaproxy::schema_registry::api*,
       ss::sharded<cloud_storage::topic_recovery_service>&,
       ss::sharded<cluster::topic_recovery_status_frontend>&,
-      ss::sharded<cluster::tx_registry_frontend>&);
+      ss::sharded<cluster::tx_registry_frontend>&,
+      ss::sharded<debug_bundle>&);
 
     ss::future<> start();
     ss::future<> stop();
@@ -504,4 +507,5 @@ private:
     // Value before the temporary override
     std::chrono::milliseconds _default_blocked_reactor_notify;
     ss::timer<> _blocked_reactor_notify_reset_timer;
+    ss::sharded<debug_bundle>& _debug_bundle;
 };

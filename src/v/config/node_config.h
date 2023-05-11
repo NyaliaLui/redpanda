@@ -75,6 +75,8 @@ public:
     property<std::optional<std::filesystem::path>>
       storage_failure_injection_config_path;
 
+    property<std::filesystem::path> debug_bundle_write_dir;
+
     // build pidfile path: `<data_directory>/pid.lock`
     std::filesystem::path pidfile_path() const {
         return data_directory().path / "pid.lock";

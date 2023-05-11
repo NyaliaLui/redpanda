@@ -203,7 +203,8 @@ admin_server::admin_server(
   ss::sharded<cloud_storage::topic_recovery_service>& topic_recovery_svc,
   ss::sharded<cluster::topic_recovery_status_frontend>&
     topic_recovery_status_frontend,
-  ss::sharded<cluster::tx_registry_frontend>& tx_registry_frontend)
+  ss::sharded<cluster::tx_registry_frontend>& tx_registry_frontend,
+  ss::sharded<debug_bundle>& debug_bundle)
   : _log_level_timer([this] { log_level_timer_handler(); })
   , _server("admin")
   , _cfg(std::move(cfg))
@@ -226,7 +227,8 @@ admin_server::admin_server(
   , _topic_recovery_status_frontend(topic_recovery_status_frontend)
   , _tx_registry_frontend(tx_registry_frontend)
   , _default_blocked_reactor_notify(
-      ss::engine().get_blocked_reactor_notify_ms()) {}
+      ss::engine().get_blocked_reactor_notify_ms())
+  , _debug_bundle{debug_bundle} {}
 
 ss::future<> admin_server::start() {
     _blocked_reactor_notify_reset_timer.set_callback([this] {
