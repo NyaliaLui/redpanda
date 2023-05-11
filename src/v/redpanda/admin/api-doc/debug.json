@@ -446,6 +446,42 @@
                     }
                 }
             ]
+        },
+        {
+            "path": "/v1/debug/bundle/files/{filename}",
+            "operations": [
+                {
+                    "method": "HEAD",
+                    "summary": "Returns the status of the debug bundle",
+                    "type": "string",
+                    "nickname": "check_debug_bundle_status",
+                    "produces": [
+                        "application/json"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "filename",
+                            "in": "path",
+                            "required": true,
+                            "type": "string"
+                        }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "The debug bundle is completed and ready for download"
+                        },
+                        "404": {
+                            "description": "The debug bundle is running but not yet ready"
+                        },
+                        "410": {
+                            "description": "The debug bundle is not running or it is not on disk"
+                        },
+                        "500": {
+                            "description": "Internal Server error"
+                        }
+                    }
+                }
+            ]
         }
     ],
     "models": {
