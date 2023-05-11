@@ -38,6 +38,8 @@ struct debug_bundle_params {
       , metrics_interval{std::nullopt} {}
 };
 
+enum class debug_bundle_status { not_running, running };
+
 class debug_bundle : public ss::peering_sharded_service<debug_bundle> {
 public:
     struct rpk_consumer {
@@ -47,7 +49,12 @@ public:
           typename consumption_result_type::stop_consuming_type;
         using tmp_buf = stop_consuming_type::tmp_buf;
 
+        rpk_consumer(debug_bundle_status& status)
+          : status{status} {}
+
         ss::future<consumption_result_type> operator()(tmp_buf buf);
+
+        debug_bundle_status& status;
     };
 
     debug_bundle(
@@ -58,11 +65,19 @@ public:
     ss::future<> start_creating_bundle(
       const request_auth_result& auth_state, const debug_bundle_params params);
     ss::future<> stop();
+    ss::future<debug_bundle_status> get_status();
+    const std::filesystem::path& get_write_dir() { return _write_dir; }
 
 private:
+    debug_bundle_status _status;
     const std::filesystem::path _write_dir;
     ss::sstring _in_progress_filename;
     ss::sstring _host_path;
     const std::filesystem::path _rpk_cmd;
     ss::gate _rpk_gate;
 };
+
+namespace detail {
+ss::sstring make_bundle_filename(
+  const std::filesystem::path& write_dir, ss::sstring& filename);
+}

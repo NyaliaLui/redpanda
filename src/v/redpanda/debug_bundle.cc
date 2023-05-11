@@ -14,6 +14,7 @@
 #include "config/configuration.h"
 #include "ssx/future-util.h"
 #include "utils/gate_guard.h"
+#include "utils/string_switch.h"
 #include "vlog.h"
 
 #include <seastar/http/exception.hh>
@@ -21,6 +22,8 @@
 #include <seastar/util/process.hh>
 
 #include <fmt/format.h>
+
+#include <optional>
 
 static ss::logger bundle_log{"debug_bundle"};
 
@@ -38,6 +41,7 @@ debug_bundle::rpk_consumer::operator()(tmp_buf buf) {
         std::getline(ss, line);
         if (line.starts_with("Debug bundle saved to")) {
             vlog(bundle_log.trace, "Stop condition reached on line {}", line);
+            status = debug_bundle_status::not_running;
             return make_ready_future<consumption_result_type>(
               stop_consuming_type({}));
         }
@@ -45,9 +49,37 @@ debug_bundle::rpk_consumer::operator()(tmp_buf buf) {
     return make_ready_future<consumption_result_type>(ss::continue_consuming{});
 }
 
+constexpr std::string_view to_string_view(debug_bundle_status bundle_status) {
+    switch (bundle_status) {
+    case debug_bundle_status::not_running:
+        return "not-running";
+    case debug_bundle_status::running:
+        return "running";
+    }
+    return "unknown";
+}
+
+template<typename E>
+std::enable_if_t<std::is_enum_v<E>, std::optional<E>>
+  from_string_view(std::string_view);
+
+template<>
+constexpr std::optional<debug_bundle_status>
+from_string_view<debug_bundle_status>(std::string_view sv) {
+    return string_switch<std::optional<debug_bundle_status>>(sv)
+      .match(
+        to_string_view(debug_bundle_status::not_running),
+        debug_bundle_status::not_running)
+      .match(
+        to_string_view(debug_bundle_status::running),
+        debug_bundle_status::running)
+      .default_match(std::nullopt);
+}
+
 debug_bundle::debug_bundle(
   const std::filesystem::path& write_dir, const std::filesystem::path& rpk_path)
-  : _write_dir{write_dir}
+  : _status{debug_bundle_status::not_running}
+  , _write_dir{write_dir}
   , _in_progress_filename{"debug-bundle.zip"}
   , _rpk_cmd{rpk_path} {}
 
@@ -71,6 +103,12 @@ ss::future<> debug_bundle::stop() {
 
 ss::future<> debug_bundle::start_creating_bundle(
   const request_auth_result& auth_state, const debug_bundle_params params) {
+    if (_status == debug_bundle_status::running) {
+        throw ss::httpd::base_exception(
+          "Too many requests: bundle is already running",
+          ss::http::reply::status_type::too_many_requests);
+    }
+
     if (ss::this_shard_id() != debug_bundle_shard_id) {
         return container().invoke_on(
           debug_bundle_shard_id,
@@ -79,9 +117,10 @@ ss::future<> debug_bundle::start_creating_bundle(
           });
     }
 
-    auto filename = _write_dir / _in_progress_filename;
+    auto filename = detail::make_bundle_filename(
+      get_write_dir(), _in_progress_filename);
     std::vector<ss::sstring> rpk_argv{
-      _rpk_cmd.string(), "debug", "bundle", "--output", filename.string()};
+      _rpk_cmd.string(), "debug", "bundle", "--output", filename};
     // Add SASL creds to RPK flags if SASL is enabled.
     // No need to check for sasl on the broker endpoint because that is for
     // Kafka brokers where as the bundle is managed by the Admin server only.
@@ -120,11 +159,12 @@ ss::future<> debug_bundle::start_creating_bundle(
           _rpk_cmd, {.argv = std::move(rpk_argv), .env = {_host_path}})
           .then([this, guard{std::move(guard)}](auto process) {
               auto stdout = process.stdout();
+              _status = debug_bundle_status::running;
               return ss::do_with(
                 std::move(process),
                 std::move(stdout),
                 [this, guard{std::move(guard)}](auto& p, auto& stdout) {
-                    return stdout.consume(rpk_consumer())
+                    return stdout.consume(rpk_consumer(_status))
                       .finally([this, &p, guard{std::move(guard)}]() mutable {
                           return p.wait()
                             .then([this](ss::experimental::process::wait_status
@@ -181,4 +221,20 @@ ss::future<> debug_bundle::start_creating_bundle(
           });
 
     return ss::make_ready_future<>();
+}
+
+ss::future<debug_bundle_status> debug_bundle::get_status() {
+    if (ss::this_shard_id() != debug_bundle_shard_id) {
+        co_return co_await container().invoke_on(
+          debug_bundle_shard_id,
+          [](debug_bundle& b) mutable { return b.get_status(); });
+    }
+
+    co_return _status;
+}
+
+ss::sstring detail::make_bundle_filename(
+  const std::filesystem::path& write_dir, ss::sstring& filename) {
+    auto bundle_name = _write_dir / filename;
+    return bundle_name.string();
 }

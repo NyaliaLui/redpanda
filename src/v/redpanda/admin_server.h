@@ -458,6 +458,8 @@ private:
       std::unique_ptr<ss::http::request>,
       std::unique_ptr<ss::http::reply>,
       const request_auth_result&);
+    ss::future<ss::json::json_return_type>
+      check_debug_bundle_status_handler(std::unique_ptr<ss::http::request>);
 
     ss::future<> throw_on_error(
       ss::http::request& req,

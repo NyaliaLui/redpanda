@@ -120,6 +120,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <regex>
 #include <stdexcept>
@@ -4161,6 +4162,13 @@ void admin_server::register_debug_routes() {
           return start_debug_bundle_handler(
             std::move(req), std::move(rep), auth_state);
       });
+
+    register_route<user>(
+      seastar::httpd::debug_json::check_debug_bundle_status,
+      [this](std::unique_ptr<ss::http::request> req)
+        -> ss::future<ss::json::json_return_type> {
+          return check_debug_bundle_status_handler(std::move(req));
+      });
 }
 
 ss::future<ss::json::json_return_type>
@@ -4876,4 +4884,33 @@ admin_server::start_debug_bundle_handler(
       auth_state, std::move(bundle_params));
     rep->set_status(ss::http::reply::status_type::accepted);
     co_return std::move(rep);
+}
+
+ss::future<ss::json::json_return_type>
+admin_server::check_debug_bundle_status_handler(
+  std::unique_ptr<ss::http::request> req) {
+    vlog(logger.info, "Getting debug bundle status...");
+    auto bundle_status = co_await _debug_bundle.local().get_status();
+    auto bundle_name = req->param["filename"];
+    bundle_name = detail::make_bundle_filename(
+      _debug_bundle.local().get_write_dir(), bundle_name);
+    if (!std::filesystem::exists(bundle_name)) {
+        if (bundle_status == debug_bundle_status::running) {
+            throw ss::httpd::not_found_exception(
+              "The debug bundle is running but not yet ready");
+        } else {
+            throw ss::httpd::base_exception(
+              "The debug bundle is not running or it is not on disk",
+              ss::http::reply::status_type::gone);
+        }
+    } else {
+        // It is possible for the bundle file to be on disk but RPK did not yet
+        // finish writing to it yet (i.e., status is "running"). In this
+        // situation, return error code 404
+        if (bundle_status == debug_bundle_status::running) {
+            throw ss::httpd::not_found_exception(
+              "The debug bundle is running but not yet ready");
+        }
+    }
+    co_return ss::json::json_return_type(ss::json::json_void());
 }
