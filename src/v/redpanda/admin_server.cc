@@ -4177,6 +4177,13 @@ void admin_server::register_debug_routes() {
           return get_debug_bundle_handler(std::move(req), std::move(rep));
       },
       "zip");
+
+    register_route<user>(
+      seastar::httpd::debug_json::delete_debug_bundle,
+      [this](std::unique_ptr<ss::http::request> req)
+        -> ss::future<ss::json::json_return_type> {
+          return delete_debug_bundle_handler(std::move(req));
+      });
 }
 
 ss::future<ss::json::json_return_type>
@@ -4912,4 +4919,13 @@ admin_server::get_debug_bundle_handler(
     vlog(logger.info, "Fetching recent debug bundle...");
     co_return co_await _debug_bundle.local().fetch_bundle(
       std::move(req), std::move(rep));
+}
+
+ss::future<ss::json::json_return_type>
+admin_server::delete_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req) {
+    vlog(logger.info, "Removing debug bundle...");
+    auto bundle_name = req->param["filename"];
+    co_await _debug_bundle.local().remove_bundle(bundle_name);
+    co_return ss::json::json_return_type(ss::json::json_void());
 }

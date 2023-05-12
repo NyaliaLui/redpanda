@@ -464,6 +464,8 @@ private:
       check_debug_bundle_status_handler(std::unique_ptr<ss::http::request>);
     ss::future<std::unique_ptr<ss::http::reply>> get_debug_bundle_handler(
       std::unique_ptr<ss::http::request>, std::unique_ptr<ss::http::reply>);
+    ss::future<ss::json::json_return_type>
+      delete_debug_bundle_handler(std::unique_ptr<ss::http::request>);
 
     ss::future<> throw_on_error(
       ss::http::request& req,

@@ -17,6 +17,8 @@
 #include "utils/string_switch.h"
 #include "vlog.h"
 
+#include <seastar/core/loop.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/file_handler.hh>
 #include <seastar/util/log.hh>
@@ -99,6 +101,7 @@ ss::future<> debug_bundle::start() {
 }
 
 ss::future<> debug_bundle::stop() {
+    using namespace std::chrono_literals;
     vlog(bundle_log.info, "Stopping debug bundle ...");
     co_await _rpk_gate.close();
 }
@@ -244,7 +247,18 @@ ss::sstring detail::make_bundle_filename(
 void detail::throw_if_bundle_dne(
   debug_bundle_status bundle_status,
   const std::filesystem::path& write_dir,
+  const ss::sstring& in_progress_filename,
   ss::sstring& filename) {
+    // First check if the requested filename is actually a bundle
+    // TODO(@NyaliaLui): In the future when we support more than 1 bundle on
+    // disk, this condition will evolve to check if the filename follows our
+    // naming scheme.
+    if (filename != in_progress_filename) {
+        throw ss::httpd::bad_request_exception(
+          fmt::format("Filename {} is not a debug bundle", filename));
+    }
+
+    // Then check if the requested filename is on ready
     auto bundle_name = detail::make_bundle_filename(write_dir, filename);
     if (!std::filesystem::exists(bundle_name.c_str())) {
         if (bundle_status == debug_bundle_status::running) {
@@ -292,4 +306,22 @@ ss::future<std::unique_ptr<ss::http::reply>> debug_bundle::fetch_bundle(
       [](auto& uploader, auto& req, auto& rep) mutable {
           return uploader.handle({}, std::move(req), std::move(rep));
       });
+}
+
+ss::future<> debug_bundle::remove_bundle(ss::sstring& filename) {
+    if (ss::this_shard_id() != debug_bundle_shard_id) {
+        co_await container().invoke_on(
+          debug_bundle_shard_id,
+          [&filename](debug_bundle& b) { return b.remove_bundle(filename); });
+    }
+
+    debug_bundle_status bundle_status{debug_bundle_status::not_running};
+    if (filename == _in_progress_filename) {
+        bundle_status = co_await get_status();
+    };
+    detail::throw_if_bundle_dne(bundle_status, get_write_dir(), filename);
+
+    co_await ss::remove_file(
+      detail::make_bundle_filename(get_write_dir(), filename));
+    co_await ss::sync_directory(get_write_dir().c_str());
 }

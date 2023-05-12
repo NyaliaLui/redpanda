@@ -73,6 +73,7 @@ public:
     ss::future<std::unique_ptr<ss::http::reply>> fetch_bundle(
       std::unique_ptr<ss::http::request> req,
       std::unique_ptr<ss::http::reply> rep);
+    ss::future<> remove_bundle(ss::sstring& filename);
 
 private:
     debug_bundle_status _status;
