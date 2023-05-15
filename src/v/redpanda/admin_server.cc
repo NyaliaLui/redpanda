@@ -78,6 +78,7 @@
 #include "redpanda/admin/api-doc/status.json.h"
 #include "redpanda/admin/api-doc/transaction.json.h"
 #include "redpanda/admin/api-doc/usage.json.h"
+#include "redpanda/debug_bundle.h"
 #include "rpc/errc.h"
 #include "security/acl.h"
 #include "security/credential_store.h"
@@ -4149,6 +4150,14 @@ void admin_server::register_debug_routes() {
     register_route<superuser>(
       ss::httpd::debug_json::unsafe_reset_metadata,
       std::move(unsafe_reset_metadata_handler));
+
+    register_route_raw_async<user>(
+      seastar::httpd::debug_json::start_debug_bundle,
+      [this](
+        std::unique_ptr<ss::http::request> req,
+        std::unique_ptr<ss::http::reply> rep) {
+          return start_debug_bundle_handler(std::move(req), std::move(rep));
+      });
 }
 
 ss::future<ss::json::json_return_type>
@@ -4820,4 +4829,14 @@ admin_server::restart_service_handler(std::unique_ptr<ss::http::request> req) {
     vlog(logger.info, "Restart redpanda service: {}", to_string_view(*service));
     co_await restart_redpanda_service(*service);
     co_return ss::json::json_return_type(ss::json::json_void());
+}
+
+ss::future<std::unique_ptr<ss::http::reply>>
+admin_server::start_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep) {
+    vlog(logger.info, "Start creating a debug bundle");
+    co_await _debug_bundle.local().start_creating_bundle();
+    rep->set_status(ss::http::reply::status_type::accepted);
+    co_return std::move(rep);
 }

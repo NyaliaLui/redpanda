@@ -192,6 +192,25 @@ node_config::node_config() noexcept
 
           return std::nullopt;
       })
+  , rpk_path(
+      *this,
+      "rpk_path",
+      "The path to the RPK binary. Used to create debug bundles (default: "
+      "/usr/bin/rpk)",
+      {.visibility = visibility::user},
+      "/usr/bin/rpk",
+      [](const std::filesystem::path& bin_path) -> std::optional<ss::sstring> {
+          if (!std::filesystem::exists(bin_path)) {
+              return ss::sstring{"RPK path does not exist"};
+          }
+
+          // access is apart of unistd.h
+          if (access(bin_path.c_str(), X_OK) != 0) {
+              return ss::sstring{"RPK path does not have exec permissions"};
+          }
+
+          return std::nullopt;
+      })
   , _advertised_rpc_api(
       *this,
       "advertised_rpc_api",

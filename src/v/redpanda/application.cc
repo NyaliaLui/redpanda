@@ -1024,7 +1024,9 @@ void application::wire_up_runtime_services(model::node_id node_id) {
     construct_single_service(_monitor_unsafe_log_flag, std::ref(feature_table));
 
     construct_service(
-      _debug_bundle, config::node().debug_bundle_write_dir.value())
+      _debug_bundle,
+      config::node().debug_bundle_write_dir.value(),
+      config::node().rpk_path.value())
       .get();
 
     configure_admin_server();
