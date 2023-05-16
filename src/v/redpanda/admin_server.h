@@ -455,7 +455,9 @@ private:
     ss::future<ss::json::json_return_type>
       restart_service_handler(std::unique_ptr<ss::http::request>);
     ss::future<std::unique_ptr<ss::http::reply>> start_debug_bundle_handler(
-      std::unique_ptr<ss::http::request>, std::unique_ptr<ss::http::reply>);
+      std::unique_ptr<ss::http::request>,
+      std::unique_ptr<ss::http::reply>,
+      const request_auth_result&);
 
     ss::future<> throw_on_error(
       ss::http::request& req,

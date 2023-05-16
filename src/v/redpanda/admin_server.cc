@@ -121,6 +121,7 @@
 #include <charconv>
 #include <chrono>
 #include <limits>
+#include <regex>
 #include <stdexcept>
 #include <system_error>
 #include <type_traits>
@@ -4151,12 +4152,14 @@ void admin_server::register_debug_routes() {
       ss::httpd::debug_json::unsafe_reset_metadata,
       std::move(unsafe_reset_metadata_handler));
 
-    register_route_raw_async<user>(
+    register_route_raw_async<user, true>(
       seastar::httpd::debug_json::start_debug_bundle,
       [this](
         std::unique_ptr<ss::http::request> req,
-        std::unique_ptr<ss::http::reply> rep) {
-          return start_debug_bundle_handler(std::move(req), std::move(rep));
+        std::unique_ptr<ss::http::reply> rep,
+        const request_auth_result& auth_state) {
+          return start_debug_bundle_handler(
+            std::move(req), std::move(rep), auth_state);
       });
 }
 
@@ -4834,9 +4837,10 @@ admin_server::restart_service_handler(std::unique_ptr<ss::http::request> req) {
 ss::future<std::unique_ptr<ss::http::reply>>
 admin_server::start_debug_bundle_handler(
   std::unique_ptr<ss::http::request> req,
-  std::unique_ptr<ss::http::reply> rep) {
+  std::unique_ptr<ss::http::reply> rep,
+  const request_auth_result& auth_state) {
     vlog(logger.info, "Start creating a debug bundle");
-    co_await _debug_bundle.local().start_creating_bundle();
+    co_await _debug_bundle.local().start_creating_bundle(auth_state);
     rep->set_status(ss::http::reply::status_type::accepted);
     co_return std::move(rep);
 }

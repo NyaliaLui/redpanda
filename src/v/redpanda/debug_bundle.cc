@@ -11,6 +11,7 @@
 
 #include "redpanda/debug_bundle.h"
 
+#include "config/configuration.h"
 #include "ssx/future-util.h"
 #include "utils/gate_guard.h"
 #include "vlog.h"
@@ -68,16 +69,29 @@ ss::future<> debug_bundle::stop() {
     co_await _rpk_gate.close();
 }
 
-ss::future<> debug_bundle::start_creating_bundle() {
+ss::future<>
+debug_bundle::start_creating_bundle(const request_auth_result& auth_state) {
     if (ss::this_shard_id() != debug_bundle_shard_id) {
         return container().invoke_on(
-          debug_bundle_shard_id,
-          [](debug_bundle& b) { return b.start_creating_bundle(); });
+          debug_bundle_shard_id, [&auth_state](debug_bundle& b) {
+              return b.start_creating_bundle(auth_state);
+          });
     }
 
     auto filename = _write_dir / _in_progress_filename;
     std::vector<ss::sstring> rpk_argv{
       _rpk_cmd.string(), "debug", "bundle", "--output", filename.string()};
+    // Add SASL creds to RPK flags if SASL is enabled.
+    // No need to check for sasl on the broker endpoint because that is for
+    // Kafka brokers where as the bundle is managed by the Admin server only.
+    if (config::shard_local_cfg().enable_sasl()) {
+        rpk_argv.push_back("--user");
+        rpk_argv.push_back(auth_state.get_username());
+        rpk_argv.push_back("--password");
+        rpk_argv.push_back(auth_state.get_password());
+        rpk_argv.push_back("--sasl-mechanism");
+        rpk_argv.push_back(auth_state.get_mechanism());
+    }
 
     gate_guard guard{_rpk_gate};
     ssx::background

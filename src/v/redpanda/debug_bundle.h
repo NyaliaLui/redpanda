@@ -12,6 +12,7 @@
 #pragma once
 
 #include "seastarx.h"
+#include "utils/request_auth.h"
 
 #include <seastar/core/future.hh>
 #include <seastar/core/gate.hh>
@@ -40,7 +41,7 @@ public:
       const std::filesystem::path& rpk_path);
 
     ss::future<> start();
-    ss::future<> start_creating_bundle();
+    ss::future<> start_creating_bundle(const request_auth_result& auth_state);
     ss::future<> stop();
 
 private:
