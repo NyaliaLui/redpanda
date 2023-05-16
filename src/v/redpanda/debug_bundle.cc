@@ -69,12 +69,13 @@ ss::future<> debug_bundle::stop() {
     co_await _rpk_gate.close();
 }
 
-ss::future<>
-debug_bundle::start_creating_bundle(const request_auth_result& auth_state) {
+ss::future<> debug_bundle::start_creating_bundle(
+  const request_auth_result& auth_state, const debug_bundle_params params) {
     if (ss::this_shard_id() != debug_bundle_shard_id) {
         return container().invoke_on(
-          debug_bundle_shard_id, [&auth_state](debug_bundle& b) {
-              return b.start_creating_bundle(auth_state);
+          debug_bundle_shard_id,
+          [&auth_state, params{std::move(params)}](debug_bundle& b) {
+              return b.start_creating_bundle(auth_state, std::move(params));
           });
     }
 
@@ -91,6 +92,26 @@ debug_bundle::start_creating_bundle(const request_auth_result& auth_state) {
         rpk_argv.push_back(auth_state.get_password());
         rpk_argv.push_back("--sasl-mechanism");
         rpk_argv.push_back(auth_state.get_mechanism());
+    }
+
+    if (params.logs_since.has_value()) {
+        rpk_argv.push_back("--logs-since");
+        rpk_argv.push_back(params.logs_since.value());
+    }
+
+    if (params.logs_until.has_value()) {
+        rpk_argv.push_back("--logs-until");
+        rpk_argv.push_back(params.logs_until.value());
+    }
+
+    if (params.logs_size_limit.has_value()) {
+        rpk_argv.push_back("--logs-size-limit");
+        rpk_argv.push_back(params.logs_size_limit.value());
+    }
+
+    if (params.metrics_interval.has_value()) {
+        rpk_argv.push_back("--metrics-interval");
+        rpk_argv.push_back(params.metrics_interval.value());
     }
 
     gate_guard guard{_rpk_gate};

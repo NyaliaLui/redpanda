@@ -4834,13 +4834,46 @@ admin_server::restart_service_handler(std::unique_ptr<ss::http::request> req) {
     co_return ss::json::json_return_type(ss::json::json_void());
 }
 
+debug_bundle_params make_debug_bundle_params(const ss::http::request& req) {
+    // NOTE: Here, we sanitize for ss::experimental::process (i.e., posix_spawn)
+    // instead of RPK
+    const std::regex bundle_regex("[a-zA-Z0-9\\-\\.]+");
+    auto maybe_sanitize_debug_bundle_param =
+      [&bundle_regex](ss::sstring p) -> std::optional<ss::sstring> {
+        if (p.empty()) {
+            return std::nullopt;
+        }
+
+        validate_utf8(p);
+        if (!std::regex_match(p.c_str(), bundle_regex)) {
+            throw ss::httpd::bad_request_exception(fmt::format(
+              "Query param contains invalid characters: param {}", p));
+        }
+
+        return std::make_optional(p);
+    };
+
+    debug_bundle_params bundle_params;
+    bundle_params.logs_since = maybe_sanitize_debug_bundle_param(
+      req.get_query_param("logs-since"));
+    bundle_params.logs_until = maybe_sanitize_debug_bundle_param(
+      req.get_query_param("logs-until"));
+    bundle_params.logs_size_limit = maybe_sanitize_debug_bundle_param(
+      req.get_query_param("logs-size-limit"));
+    bundle_params.metrics_interval = maybe_sanitize_debug_bundle_param(
+      req.get_query_param("metrics-interval"));
+    return bundle_params;
+}
+
 ss::future<std::unique_ptr<ss::http::reply>>
 admin_server::start_debug_bundle_handler(
   std::unique_ptr<ss::http::request> req,
   std::unique_ptr<ss::http::reply> rep,
   const request_auth_result& auth_state) {
     vlog(logger.info, "Start creating a debug bundle");
-    co_await _debug_bundle.local().start_creating_bundle(auth_state);
+    auto bundle_params = make_debug_bundle_params(*req);
+    co_await _debug_bundle.local().start_creating_bundle(
+      auth_state, std::move(bundle_params));
     rep->set_status(ss::http::reply::status_type::accepted);
     co_return std::move(rep);
 }

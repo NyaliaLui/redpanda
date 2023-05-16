@@ -407,7 +407,32 @@
                     "produces": [
                         "application/json"
                     ],
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "name": "logs-since",
+                            "in": "query",
+                            "required": false,
+                            "type": "string"
+                        },
+                        {
+                            "name": "logs-until",
+                            "in": "query",
+                            "required": false,
+                            "type": "string"
+                        },
+                        {
+                            "name": "logs-size-limit",
+                            "in": "query",
+                            "required": false,
+                            "type": "string"
+                        },
+                        {
+                            "name": "metrics-interval",
+                            "in": "query",
+                            "required": false,
+                            "type": "string"
+                        }
+                    ],
                     "responses": {
                         "202": {
                             "description": "Successfully started debug bundle"

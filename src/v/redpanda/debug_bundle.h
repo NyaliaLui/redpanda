@@ -21,8 +21,22 @@
 #include <seastar/core/sstring.hh>
 
 #include <filesystem>
+#include <optional>
 
 static constexpr ss::shard_id debug_bundle_shard_id = 0;
+
+struct debug_bundle_params {
+    std::optional<ss::sstring> logs_since;
+    std::optional<ss::sstring> logs_until;
+    std::optional<ss::sstring> logs_size_limit;
+    std::optional<ss::sstring> metrics_interval;
+
+    debug_bundle_params()
+      : logs_since{std::nullopt}
+      , logs_until{std::nullopt}
+      , logs_size_limit{std::nullopt}
+      , metrics_interval{std::nullopt} {}
+};
 
 class debug_bundle : public ss::peering_sharded_service<debug_bundle> {
 public:
@@ -41,7 +55,8 @@ public:
       const std::filesystem::path& rpk_path);
 
     ss::future<> start();
-    ss::future<> start_creating_bundle(const request_auth_result& auth_state);
+    ss::future<> start_creating_bundle(
+      const request_auth_result& auth_state, const debug_bundle_params params);
     ss::future<> stop();
 
 private:
