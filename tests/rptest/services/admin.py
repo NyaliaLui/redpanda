@@ -951,3 +951,60 @@ class Admin:
         """
         return self._request("get", "debug/local_storage_usage",
                              node=node).json()
+
+    def start_debug_bundle(self,
+                           node=None,
+                           logs_since: Optional[str] = None,
+                           logs_until: Optional[str] = None,
+                           logs_size_limit: Optional[str] = None,
+                           metrics_interval: Optional[str] = None,
+                           **kwargs):
+        """
+        Initiate creating a debug bundle
+        """
+        path = "debug/bundle/actions/create"
+        params = {}
+        if logs_since is not None:
+            params["logs-since"] = logs_since
+
+        if logs_until is not None:
+            params["logs-until"] = logs_until
+
+        if logs_size_limit is not None:
+            params["logs-size-limit"] = logs_size_limit
+
+        if metrics_interval is not None:
+            params["metrics-interval"] = metrics_interval
+
+        if params:
+            joined = "&".join([f"{k}={v}" for k, v in params.items()])
+            path = path + f"?{joined}"
+
+        return self._request("POST", path, node=node, **kwargs)
+
+    def debug_bundle_status(self, filename: str, node=None, **kwargs):
+        """
+        Get the debug bundle status
+        """
+        return self._request("HEAD",
+                             f"debug/bundle/files/{filename}",
+                             node=node,
+                             **kwargs)
+
+    def download_debug_bundle(self, filename: str, node=None, **kwargs):
+        """
+        Download the most recent debug bundle to local disk. Check response.content for the byte data.
+        """
+        return self._request("GET",
+                             f"debug/bundle/files/{filename}",
+                             node=node,
+                             **kwargs)
+
+    def remove_debug_bundle(self, filename: str, node=None, **kwargs):
+        """
+        Remove the debug bundle from remote disk
+        """
+        return self._request("DELETE",
+                             f"debug/bundle/files/{filename}",
+                             node=node,
+                             **kwargs)

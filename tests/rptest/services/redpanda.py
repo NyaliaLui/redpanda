@@ -2573,7 +2573,8 @@ class RedpandaService(RedpandaServiceBase):
                            endpoint_authn_method=self.endpoint_authn_method(),
                            auto_auth=self._security.auto_auth,
                            memory_allocation_warning_threshold=
-                           memory_allocation_warning_threshold_bytes)
+                           memory_allocation_warning_threshold_bytes,
+                           rpk_abs_path=self.find_binary('rpk'))
 
         if override_cfg_params or self._extra_node_conf[node]:
             doc = yaml.full_load(conf)
