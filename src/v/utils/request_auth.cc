@@ -99,44 +99,17 @@ request_auth_result request_authenticator::do_authenticate(
         }
         username = security::credential_user{decoded_bytes.substr(0, colon)};
         security::credential_password password{decoded_bytes.substr(colon + 1)};
-
-        const auto cred_opt = cred_store.get<security::scram_credential>(
-          username);
-        if (!cred_opt.has_value()) {
-            // User not found
-            vlog(
-              logger.warn,
-              "Client auth failure: user '{}' not found",
-              username);
-            throw ss::httpd::base_exception(
-              "Unauthorized", ss::http::reply::status_type::unauthorized);
-        } else {
-            const auto& cred = cred_opt.value();
-            bool is_valid = (
-              security::scram_sha256::validate_password(
-                password, cred.stored_key(), cred.salt(), cred.iterations())
-              || security::scram_sha512::validate_password(
-                password, cred.stored_key(), cred.salt(), cred.iterations()));
-            if (!is_valid) {
-                // User found, password doesn't match
-                vlog(
-                  logger.warn,
-                  "Client auth failure: user '{}' wrong password",
-                  username);
-                throw ss::httpd::base_exception(
-                  "Unauthorized", ss::http::reply::status_type::unauthorized);
-            } else {
-                vlog(logger.trace, "Authenticated user {}", username);
-                const auto& superusers = _superusers();
-                auto found = std::find(
-                  superusers.begin(), superusers.end(), username);
-                bool superuser = (found != superusers.end()) || (!require_auth);
-                return request_auth_result(
-                  std::move(username),
-                  std::move(password),
-                  request_auth_result::superuser(superuser));
-            }
-        }
+        // Validate password will throw if: (1) the user is not found or (2) the
+        // password does not match
+        detail::validate_password(username, password, cred_store);
+        vlog(logger.trace, "Authenticated user {}", username);
+        const auto& superusers = _superusers();
+        auto found = std::find(superusers.begin(), superusers.end(), username);
+        bool superuser = (found != superusers.end()) || (!require_auth);
+        return request_auth_result(
+          std::move(username),
+          std::move(password),
+          request_auth_result::superuser(superuser));
     } else if (!auth_hdr.empty()) {
         throw ss::httpd::bad_request_exception(
           "Unsupported Authorization method");
@@ -201,4 +174,34 @@ request_auth_result::~request_auth_result() noexcept(false) {
         // code, we do not tell them why.
         throw ss::httpd::server_error_exception("Internal Error");
     }
+}
+
+ss::sstring detail::validate_password(
+  const security::credential_user& username,
+  const security::credential_password& password,
+  const security::credential_store& cred_store) {
+    const auto cred_opt = cred_store.get<security::scram_credential>(username);
+    if (!cred_opt.has_value()) {
+        // User not found
+        vlog(logger.warn, "Client auth failure: user '{}' not found", username);
+        throw ss::httpd::base_exception(
+          "Unauthorized", ss::http::reply::status_type::unauthorized);
+    }
+
+    const auto& cred = cred_opt.value();
+    if (security::scram_sha256::validate_password(
+          password, cred.stored_key(), cred.salt(), cred.iterations())) {
+        return ss::sstring{"SCRAM-SHA-256"};
+    }
+
+    if (security::scram_sha512::validate_password(
+          password, cred.stored_key(), cred.salt(), cred.iterations())) {
+        return ss::sstring{"SCRAM-SHA-512"};
+    }
+
+    // User found, password doesn't match
+    vlog(
+      logger.warn, "Client auth failure: user '{}' wrong password", username);
+    throw ss::httpd::base_exception(
+      "Unauthorized", ss::http::reply::status_type::unauthorized);
 }

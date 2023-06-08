@@ -105,3 +105,12 @@ private:
     config::binding<bool> _require_auth;
     config::binding<std::vector<ss::sstring>> _superusers;
 };
+
+namespace detail {
+// Validates the username and password.
+// Returns the scram mechanism that was used to successfully validate.
+ss::sstring validate_password(
+  const security::credential_user& username,
+  const security::credential_password& password,
+  const security::credential_store& cred_store);
+} // namespace detail

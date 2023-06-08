@@ -78,6 +78,7 @@
 #include "redpanda/admin/api-doc/status.json.h"
 #include "redpanda/admin/api-doc/transaction.json.h"
 #include "redpanda/admin/api-doc/usage.json.h"
+#include "redpanda/debug_bundle.h"
 #include "rpc/errc.h"
 #include "security/acl.h"
 #include "security/credential_store.h"
@@ -117,9 +118,11 @@
 #include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <fmt/core.h>
 
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <limits>
+#include <regex>
 #include <stdexcept>
 #include <system_error>
 #include <type_traits>
@@ -203,7 +206,8 @@ admin_server::admin_server(
   ss::sharded<cloud_storage::topic_recovery_service>& topic_recovery_svc,
   ss::sharded<cluster::topic_recovery_status_frontend>&
     topic_recovery_status_frontend,
-  ss::sharded<cluster::tx_registry_frontend>& tx_registry_frontend)
+  ss::sharded<cluster::tx_registry_frontend>& tx_registry_frontend,
+  ss::sharded<debug_bundle::debug_bundle>& debug_bundle)
   : _log_level_timer([this] { log_level_timer_handler(); })
   , _server("admin")
   , _cfg(std::move(cfg))
@@ -226,7 +230,9 @@ admin_server::admin_server(
   , _topic_recovery_status_frontend(topic_recovery_status_frontend)
   , _tx_registry_frontend(tx_registry_frontend)
   , _default_blocked_reactor_notify(
-      ss::engine().get_blocked_reactor_notify_ms()) {}
+      ss::engine().get_blocked_reactor_notify_ms())
+  , _debug_bundle{debug_bundle}
+  , _debug_bundle_uploader{ss::sstring{}, nullptr, false} {}
 
 ss::future<> admin_server::start() {
     _blocked_reactor_notify_reset_timer.set_callback([this] {
@@ -4175,6 +4181,48 @@ void admin_server::register_debug_routes() {
     register_route<superuser>(
       ss::httpd::debug_json::unsafe_reset_metadata,
       std::move(unsafe_reset_metadata_handler));
+
+    register_route_raw_async<user, true>(
+      seastar::httpd::debug_json::start_debug_bundle,
+      [this](
+        std::unique_ptr<ss::http::request> req,
+        std::unique_ptr<ss::http::reply> rep,
+        const request_auth_result auth_state) {
+          return start_debug_bundle_handler(
+            std::move(req), std::move(rep), std::move(auth_state));
+      });
+
+    register_route_raw_async<user>(
+      seastar::httpd::debug_json::check_debug_bundle_status,
+      [this](
+        std::unique_ptr<ss::http::request> req,
+        std::unique_ptr<ss::http::reply> rep) {
+          return check_debug_bundle_status_handler(
+            std::move(req), std::move(rep));
+      });
+
+    register_route_raw_async<user>(
+      seastar::httpd::debug_json::get_debug_bundle,
+      [this](
+        std::unique_ptr<ss::http::request> req,
+        std::unique_ptr<ss::http::reply> rep) {
+          return get_debug_bundle_handler(std::move(req), std::move(rep));
+      },
+      "zip");
+
+    register_route<user>(
+      seastar::httpd::debug_json::delete_debug_bundle,
+      [this](std::unique_ptr<ss::http::request> req)
+        -> ss::future<ss::json::json_return_type> {
+          return delete_debug_bundle_handler(std::move(req));
+      });
+
+    register_route<user>(
+      seastar::httpd::debug_json::abort_debug_bundle,
+      [this](std::unique_ptr<ss::http::request> req)
+        -> ss::future<ss::json::json_return_type> {
+          return abort_debug_bundle_handler(std::move(req));
+      });
 }
 
 ss::future<ss::json::json_return_type>
@@ -4847,5 +4895,229 @@ admin_server::restart_service_handler(std::unique_ptr<ss::http::request> req) {
 
     vlog(logger.info, "Restart redpanda service: {}", to_string_view(*service));
     co_await restart_redpanda_service(*service);
+    co_return ss::json::json_return_type(ss::json::json_void());
+}
+
+void maybe_throw_on_debug_bundle_err(std::error_code err) {
+    if (err.category() == debug_bundle::error_category()) {
+        switch (debug_bundle::make_rpk_err_value(err)) {
+        case debug_bundle::errc::success:
+            return;
+        case debug_bundle::errc::already_running:
+            throw ss::httpd::base_exception(
+              fmt::format("Too many requests: {}", err.message()),
+              ss::http::reply::status_type::too_many_requests);
+        case debug_bundle::errc::nothing_running:
+            throw ss::httpd::not_found_exception(err.message());
+        case debug_bundle::errc::bundle_not_ready:
+            throw ss::httpd::not_found_exception(
+              "The debug bundle is running but not yet ready");
+        case debug_bundle::errc::bundle_not_on_disk:
+            throw ss::httpd::base_exception(
+              "The debug bundle is not running or it is not on disk",
+              ss::http::reply::status_type::gone);
+        case debug_bundle::errc::invalid_filename:
+            throw ss::httpd::bad_request_exception(err.message());
+        case debug_bundle::errc::process_fail:
+            throw ss::httpd::server_error_exception(err.message());
+        }
+        __builtin_unreachable();
+    } else {
+        vlog(logger.warn, "Unknown error category: error {}", err.message());
+        throw ss::httpd::server_error_exception(
+          "Unknown error: error missmatch");
+    }
+}
+
+// Checks if the debug_bundle_shard_id core reports the bundle is ready
+ss::future<> bundle_is_ready(
+  ss::sharded<debug_bundle::debug_bundle>& bundle_service,
+  ss::sstring& bundle_name) {
+    auto err = co_await bundle_service.invoke_on(
+      debug_bundle::debug_bundle_shard_id,
+      [&bundle_name](debug_bundle::debug_bundle& b) {
+          return b.is_ready(bundle_name);
+      });
+    maybe_throw_on_debug_bundle_err(err);
+}
+
+std::optional<std::chrono::year_month_day>
+bundle_param_as_ymd(std::optional<ss::sstring> param) {
+    if (!param.has_value()) {
+        return std::nullopt;
+    }
+
+    auto first_dash = param->find('-');
+    auto second_dash = param->find('-', first_dash);
+    std::chrono::year y{std::stoi(param->substr(0, 4))};
+    std::chrono::month m{
+      static_cast<unsigned>(std::stoi(param->substr(first_dash, 2)))};
+    std::chrono::day d{
+      static_cast<unsigned>(std::stoi(param->substr(second_dash, 2)))};
+    return std::make_optional(std::chrono::year_month_day{y, m, d});
+}
+
+std::optional<debug_bundle::metric_interval_t>
+bundle_param_as_metric_interval(std::optional<ss::sstring> param) {
+    if (!param.has_value()) {
+        return std::nullopt;
+    }
+
+    auto it = std::find_if(
+      param->begin(), param->end(), [](char c) { return std::isalpha(c); });
+
+    if (it == param->end()) {
+        throw ss::httpd::bad_request_exception(
+          fmt::format("Query param requires time units: param {}", *param));
+    }
+
+    auto first_char_pos = param->find(*it);
+    std::chrono::milliseconds interval_ms{
+      std::stoi(param->substr(0, first_char_pos))};
+    ss::sstring units{param->substr(first_char_pos)};
+    return std::make_optional(
+      debug_bundle::metric_interval_t{interval_ms, units});
+}
+
+debug_bundle::debug_bundle_params
+make_debug_bundle_params(const ss::http::request& req) {
+    // NOTE: Here, we sanitize for ss::experimental::process (i.e., posix_spawn)
+    // instead of RPK
+    const std::regex bundle_regex("[a-zA-Z0-9\\-\\.]+");
+    auto maybe_sanitize_debug_bundle_param =
+      [&bundle_regex](ss::sstring p) -> std::optional<ss::sstring> {
+        if (p.empty()) {
+            return std::nullopt;
+        }
+
+        validate_utf8(p);
+        if (!std::regex_match(p.c_str(), bundle_regex)) {
+            throw ss::httpd::bad_request_exception(fmt::format(
+              "Query param contains invalid characters: param {}", p));
+        }
+
+        return std::make_optional(p);
+    };
+
+    debug_bundle::debug_bundle_params bundle_params;
+    bundle_params.logs_since = bundle_param_as_ymd(
+      maybe_sanitize_debug_bundle_param(req.get_query_param("logs-since")));
+    bundle_params.logs_until = bundle_param_as_ymd(
+      maybe_sanitize_debug_bundle_param(req.get_query_param("logs-until")));
+    bundle_params.logs_size_limit = maybe_sanitize_debug_bundle_param(
+      req.get_query_param("logs-size-limit"));
+    bundle_params.metrics_interval = bundle_param_as_metric_interval(
+      maybe_sanitize_debug_bundle_param(
+        req.get_query_param("metrics-interval")));
+    return bundle_params;
+}
+
+debug_bundle::debug_bundle_credentials make_debug_bundle_credentials(
+  const request_auth_result& auth_state,
+  const security::credential_store& cred_store) {
+    auto username = security::credential_user{auth_state.get_username()};
+    auto password = security::credential_password{auth_state.get_password()};
+    auto mechanism = detail::validate_password(username, password, cred_store);
+    return debug_bundle::debug_bundle_credentials{
+      .username = username(), .password = password(), .mechanism = mechanism};
+}
+
+bool is_sasl_enabled() {
+    if (config::shard_local_cfg().enable_sasl.value()) {
+        return true;
+    }
+
+    const auto& kafka_api = config::node().kafka_api.value();
+    auto it = std::find_if(
+      kafka_api.cbegin(), kafka_api.cend(), [](const auto& ep) {
+          if (!ep.authn_method.has_value()) {
+              return false;
+          }
+
+          return ep.authn_method.value() == config::broker_authn_method::sasl;
+      });
+
+    if (it == kafka_api.cend()) {
+        return false;
+    }
+
+    // Since an endpoint was found with sasl enabled, then simply return true
+    return true;
+}
+
+ss::future<std::unique_ptr<ss::http::reply>>
+admin_server::start_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep,
+  const request_auth_result auth_state) {
+    vlog(logger.info, "Start creating a debug bundle");
+    auto bundle_params = make_debug_bundle_params(*req);
+    std::optional<debug_bundle::debug_bundle_credentials> bundle_creds{
+      std::nullopt};
+    if (is_sasl_enabled()) {
+        const auto& cred_store = _controller->get_credential_store().local();
+        bundle_creds = make_debug_bundle_credentials(auth_state, cred_store);
+    }
+    auto err = co_await _debug_bundle.local().start_creating_bundle(
+      std::move(bundle_params), std::move(bundle_creds));
+    maybe_throw_on_debug_bundle_err(err);
+    rep->set_status(ss::http::reply::status_type::accepted);
+    co_return std::move(rep);
+}
+
+ss::future<std::unique_ptr<ss::http::reply>>
+admin_server::check_debug_bundle_status_handler(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep) {
+    // TODO(@NyaliaLui): validate the filename
+    auto bundle_name = req->param["filename"];
+    vlog(logger.info, "Getting status for debug bundle {} ...", bundle_name);
+    try {
+        co_await bundle_is_ready(_debug_bundle, bundle_name);
+    } catch (const ss::httpd::base_exception& ex) {
+        rep->set_status(ex.status(), ex.what());
+    }
+    co_return std::move(rep);
+}
+
+ss::future<std::unique_ptr<ss::http::reply>>
+admin_server::get_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req,
+  std::unique_ptr<ss::http::reply> rep) {
+    auto bundle_name = req->param["filename"];
+    vlog(
+      logger.info, "Preparing debug bundle {} for download ...", bundle_name);
+    co_await bundle_is_ready(_debug_bundle, bundle_name);
+
+    auto bundle_full_path = debug_bundle::make_bundle_filename(
+      _debug_bundle.local().get_write_dir(), bundle_name);
+    _debug_bundle_uploader = ss::httpd::file_handler{
+      bundle_full_path, nullptr, false};
+
+    // Upload the file on the shard servicing the request
+    co_return co_await _debug_bundle.local().with_lock(
+      [this, req{std::move(req)}, rep{std::move(rep)}]() mutable
+      -> ss::future<std::unique_ptr<ss::http::reply>> {
+          // The file upload is protected by the bundle's lock
+          co_return co_await _debug_bundle_uploader.handle(
+            {}, std::move(req), std::move(rep));
+      });
+}
+
+ss::future<ss::json::json_return_type>
+admin_server::delete_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req) {
+    auto bundle_name = req->param["filename"];
+    vlog(logger.info, "Removing debug bundle {} ...", bundle_name);
+    auto err = co_await _debug_bundle.local().remove_bundle(bundle_name);
+    maybe_throw_on_debug_bundle_err(err);
+    co_return ss::json::json_return_type(ss::json::json_void());
+}
+
+ss::future<ss::json::json_return_type> admin_server::abort_debug_bundle_handler(
+  std::unique_ptr<ss::http::request> req) {
+    vlog(logger.info, "Abort called for running debug bundle ...");
+    auto err = co_await _debug_bundle.local().abort_bundle();
+    maybe_throw_on_debug_bundle_err(err);
     co_return ss::json::json_return_type(ss::json::json_void());
 }

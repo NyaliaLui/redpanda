@@ -38,6 +38,7 @@
 #include "pandaproxy/schema_registry/fwd.h"
 #include "raft/fwd.h"
 #include "redpanda/admin_server.h"
+#include "redpanda/debug_bundle.h"
 #include "redpanda/monitor_unsafe_log_flag.h"
 #include "resource_mgmt/cpu_scheduling.h"
 #include "resource_mgmt/memory_groups.h"
@@ -276,6 +277,8 @@ private:
     std::unique_ptr<kafka::rm_group_proxy_impl> _rm_group_proxy;
 
     std::unique_ptr<cluster::node_isolation_watcher> _node_isolation_watcher;
+
+    ss::sharded<debug_bundle::debug_bundle> _debug_bundle;
 
     // Small helpers to execute one-time upgrade actions
     std::vector<std::unique_ptr<features::feature_migrator>> _migrators;

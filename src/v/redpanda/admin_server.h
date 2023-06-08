@@ -45,6 +45,10 @@ enum class service_kind {
     schema_registry,
 };
 
+namespace debug_bundle {
+class debug_bundle;
+};
+
 namespace detail {
 // Helper for static_assert-ing false below.
 template<auto V>
@@ -72,7 +76,8 @@ public:
       pandaproxy::schema_registry::api*,
       ss::sharded<cloud_storage::topic_recovery_service>&,
       ss::sharded<cluster::topic_recovery_status_frontend>&,
-      ss::sharded<cluster::tx_registry_frontend>&);
+      ss::sharded<cluster::tx_registry_frontend>&,
+      ss::sharded<debug_bundle::debug_bundle>&);
 
     ss::future<> start();
     ss::future<> stop();
@@ -204,7 +209,9 @@ private:
      */
     template<auth_level required_auth, bool peek_auth = false, typename F>
     void register_route_raw_async(
-      ss::httpd::path_description const& path, F handler) {
+      ss::httpd::path_description const& path,
+      F handler,
+      ss::sstring content_type = "json") {
         auto wrapped_handler = [this, handler](
                                  std::unique_ptr<ss::http::request> req,
                                  std::unique_ptr<ss::http::reply> rep)
@@ -237,7 +244,7 @@ private:
         };
 
         auto handler_f = new ss::httpd::function_handler{
-          std::move(wrapped_handler), "json"};
+          std::move(wrapped_handler), content_type};
 
         path.set(_server._routes, handler_f);
     }
@@ -451,6 +458,19 @@ private:
       cloud_storage_usage_handler(std::unique_ptr<ss::http::request>);
     ss::future<ss::json::json_return_type>
       restart_service_handler(std::unique_ptr<ss::http::request>);
+    ss::future<std::unique_ptr<ss::http::reply>> start_debug_bundle_handler(
+      std::unique_ptr<ss::http::request>,
+      std::unique_ptr<ss::http::reply>,
+      const request_auth_result);
+    ss::future<std::unique_ptr<ss::http::reply>>
+      check_debug_bundle_status_handler(
+        std::unique_ptr<ss::http::request>, std::unique_ptr<ss::http::reply>);
+    ss::future<std::unique_ptr<ss::http::reply>> get_debug_bundle_handler(
+      std::unique_ptr<ss::http::request>, std::unique_ptr<ss::http::reply>);
+    ss::future<ss::json::json_return_type>
+      delete_debug_bundle_handler(std::unique_ptr<ss::http::request>);
+    ss::future<ss::json::json_return_type>
+      abort_debug_bundle_handler(std::unique_ptr<ss::http::request>);
 
     ss::future<> throw_on_error(
       ss::http::request& req,
@@ -504,4 +524,6 @@ private:
     // Value before the temporary override
     std::chrono::milliseconds _default_blocked_reactor_notify;
     ss::timer<> _blocked_reactor_notify_reset_timer;
+    ss::sharded<debug_bundle::debug_bundle>& _debug_bundle;
+    ss::httpd::file_handler _debug_bundle_uploader;
 };
