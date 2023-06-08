@@ -54,6 +54,8 @@ redpanda:
   {% endfor %}
 {% endif %}
 
+  rpk_path: {{ rpk_abs_path }}
+
 {% if pandaproxy_config is not none %}
 pandaproxy:
   # Pandaproxy transport

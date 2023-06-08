@@ -31,7 +31,8 @@ class RpkConsumer(BackgroundThreadService):
                  save_msgs=True,
                  fetch_max_bytes=None,
                  num_msgs=None,
-                 retry_sec=5):
+                 retry_sec=5,
+                 auth_tuple=None):
         super(RpkConsumer, self).__init__(context, num_nodes=1)
         self._redpanda = redpanda
         self._topic = topic
@@ -50,6 +51,7 @@ class RpkConsumer(BackgroundThreadService):
         self._fetch_max_bytes = fetch_max_bytes
         self._num_msgs = num_msgs
         self._retry_sec = retry_sec
+        self._auth_tuple = auth_tuple
 
     def _worker(self, idx, node):
         err = None
@@ -122,6 +124,11 @@ class RpkConsumer(BackgroundThreadService):
 
         if self._num_msgs is not None:
             cmd += f' -n {self._num_msgs}'
+
+        if self._auth_tuple is not None:
+            cmd += f' --user {self._auth_tuple[0]}'
+            cmd += f' --password {self._auth_tuple[1]}'
+            cmd += f' --sasl-mechanism {self._auth_tuple[2]}'
 
         for line in node.account.ssh_capture(cmd):
             if self._stopping.is_set():

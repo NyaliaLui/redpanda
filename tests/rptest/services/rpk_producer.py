@@ -22,7 +22,8 @@ class RpkProducer(BackgroundThreadService):
                  produce_timeout: Optional[int] = None,
                  *,
                  partition: Optional[int] = None,
-                 max_message_bytes: Optional[int] = None):
+                 max_message_bytes: Optional[int] = None,
+                 auth_tuple: Optional[str] = None):
         super(RpkProducer, self).__init__(context, num_nodes=1)
         self._redpanda = redpanda
         self._topic = topic
@@ -39,6 +40,8 @@ class RpkProducer(BackgroundThreadService):
         if produce_timeout is None:
             produce_timeout = 10
         self._produce_timeout = produce_timeout
+
+        self._auth_tuple = auth_tuple
 
     def _worker(self, _idx, node):
         # NOTE: since this runs on separate nodes from the service, the binary
@@ -67,6 +70,11 @@ class RpkProducer(BackgroundThreadService):
 
         if self._max_message_bytes is not None:
             cmd += f" --max-message-bytes {self._max_message_bytes}"
+
+        if self._auth_tuple is not None:
+            cmd += f' --user {self._auth_tuple[0]}'
+            cmd += f' --password {self._auth_tuple[1]}'
+            cmd += f' --sasl-mechanism {self._auth_tuple[2]}'
 
         self._stopping.clear()
         try:
