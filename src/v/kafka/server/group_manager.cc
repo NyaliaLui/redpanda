@@ -770,6 +770,12 @@ ss::future<> group_manager::do_recover_group(
                   p->partition->ntp());
             }
         }
+
+        vlog(
+          klog.info,
+          "Successfully recovered group: group {}, ntp {}",
+          group_id,
+          p->partition->ntp());
     }
     co_return;
 }
@@ -932,7 +938,7 @@ group::join_group_stages group_manager::join_group(join_group_request&& r) {
         _groups.emplace(r.data.group_id, group);
         _groups.rehash(0);
         is_new_group = true;
-        vlog(klog.trace, "Created new group {} while joining", r.data.group_id);
+        vlog(klog.info, "Created new group {} while joining", r.data.group_id);
     }
 
     auto ret = group->handle_join_group(std::move(r), is_new_group);
