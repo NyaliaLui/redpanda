@@ -12,6 +12,15 @@
 #include "config/constraint_store.h"
 
 namespace config {
+constraint& constraint_store::get(const ss::sstring& name) {
+    auto found = _constraints.find(name);
+    if (found != _constraints.end()) {
+        return found->second;
+    } else {
+        throw std::out_of_range(ssx::sformat("Constraint {} not found", name));
+    }
+}
+
 /**
  * Creates constraints based on the constraint mapping from the
  * configuration store. This implies that the broker already read the YAML

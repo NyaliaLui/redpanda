@@ -11,6 +11,7 @@
 
 #include "config/base_property.h"
 #include "config/bounded_property.h"
+#include "config/constraint_method_generators.h"
 #include "config/node_config.h"
 #include "config/validators.h"
 #include "model/metadata.h"
@@ -28,6 +29,10 @@
 namespace config {
 using namespace std::chrono_literals;
 
+// TODO(@NyaliaLui): See if there is a way to set methods generators on
+// properties such that they are not at the end of the constructor's args. The
+// code change here is kinda big because of that.
+
 configuration::configuration()
   : log_segment_size(
     *this,
@@ -38,7 +43,9 @@ configuration::configuration()
      .example = "2147483648",
      .visibility = visibility::tunable},
     128_MiB,
-    {.min = 1_MiB})
+    {.min = 1_MiB},
+    std::nullopt,
+    segment_size_constraint_methods)
   , log_segment_size_min(
       *this,
       "log_segment_size_min",
@@ -91,7 +98,9 @@ configuration::configuration()
        .example = "3600000",
        .visibility = visibility::user},
       std::chrono::weeks{2},
-      {.min = 60s})
+      {.min = 60s},
+      std::nullopt,
+      segment_ms_constraint_methods)
   , log_segment_ms_min(
       *this,
       "log_segment_ms_min",
@@ -545,7 +554,10 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "compact,delete",
        .visibility = visibility::user},
-      model::cleanup_policy_bitflags::deletion)
+      model::cleanup_policy_bitflags::deletion,
+      property<model::cleanup_policy_bitflags>::noop_validator,
+      std::nullopt,
+      cleanup_policy_constraint_methods)
   , log_message_timestamp_type(
       *this,
       "log_message_timestamp_type",
@@ -554,7 +566,8 @@ configuration::configuration()
        .example = "LogAppendTime",
        .visibility = visibility::user},
       model::timestamp_type::create_time,
-      {model::timestamp_type::create_time, model::timestamp_type::append_time})
+      {model::timestamp_type::create_time, model::timestamp_type::append_time},
+      timestamp_type_constraint_methods)
   , log_message_timestamp_alert_before_ms(
       *this,
       "log_message_timestamp_alert_before_ms",
@@ -590,7 +603,8 @@ configuration::configuration()
        model::compression::snappy,
        model::compression::lz4,
        model::compression::zstd,
-       model::compression::producer})
+       model::compression::producer},
+      compression_type_constraint_methods)
   , fetch_max_bytes(
       *this,
       "fetch_max_bytes",
@@ -708,7 +722,10 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .visibility = visibility::user,
        .aliases = {"delete_retention_ms"}},
-      7 * 24h)
+      7 * 24h,
+      property<std::optional<std::chrono::milliseconds>>::noop_validator,
+      std::nullopt,
+      retention_ms_constraint_methods)
   , log_compaction_interval_ms(
       *this,
       "log_compaction_interval_ms",
@@ -727,7 +744,10 @@ configuration::configuration()
       "retention_bytes",
       "Default max bytes per partition on disk before triggering a compaction",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
-      std::nullopt)
+      std::nullopt,
+      property<std::optional<size_t>>::noop_validator,
+      std::nullopt,
+      retention_bytes_constraint_methods)
   , group_topic_partitions(
       *this,
       "group_topic_partitions",
@@ -740,7 +760,9 @@ configuration::configuration()
       "Default replication factor for new topics",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       1,
-      {.min = 1, .oddeven = odd_even_constraint::odd})
+      {.min = 1, .oddeven = odd_even_constraint::odd},
+      std::nullopt,
+      replication_factor_constraint_methods)
   , transaction_coordinator_replication(
       *this, "transaction_coordinator_replication")
   , id_allocator_replication(*this, "id_allocator_replication")
@@ -800,7 +822,10 @@ configuration::configuration()
       "default_topic_partitions",
       "Default number of partitions per topic",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
-      1)
+      1,
+      property<int32_t>::noop_validator,
+      std::nullopt,
+      partition_count_constraint_methods)
   , disable_batch_cache(
       *this,
       "disable_batch_cache",
@@ -1187,7 +1212,10 @@ configuration::configuration()
       "Maximum size of a batch processed by server. If batch is compressed the "
       "limit applies to compressed batch size",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
-      1_MiB)
+      1_MiB,
+      property<uint32_t>::noop_validator,
+      std::nullopt,
+      kafka_batch_max_bytes_constraint_methods)
   , kafka_nodelete_topics(
       *this,
       "kafka_nodelete_topics",
@@ -1408,13 +1436,19 @@ configuration::configuration()
       "cloud_storage_enable_remote_read",
       "Default remote read config value for new topics",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
-      false)
+      false,
+      property<bool>::noop_validator,
+      std::nullopt,
+      remote_read_constraint_methods)
   , cloud_storage_enable_remote_write(
       *this,
       "cloud_storage_enable_remote_write",
       "Default remote write value for new topics",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
-      false)
+      false,
+      property<bool>::noop_validator,
+      std::nullopt,
+      remote_write_constraint_methods)
   , cloud_storage_access_key(
       *this,
       "cloud_storage_access_key",
@@ -1890,14 +1924,20 @@ configuration::configuration()
       "Local retention size target for partitions of topics with cloud storage "
       "write enabled",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
-      std::nullopt)
+      std::nullopt,
+      property<std::optional<size_t>>::noop_validator,
+      std::nullopt,
+      retention_local_target_bytes_constraint_methods)
   , retention_local_target_ms_default(
       *this,
       "retention_local_target_ms_default",
       "Local retention time target for partitions of topics with cloud storage "
       "write enabled",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
-      24h)
+      24h,
+      property<std::chrono::milliseconds>::noop_validator,
+      std::nullopt,
+      retention_local_target_ms_constraint_methods)
   , retention_local_strict(
       *this,
       "retention_local_strict",

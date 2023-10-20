@@ -55,6 +55,7 @@
 #include "compression/async_stream_zstd.h"
 #include "compression/stream_zstd.h"
 #include "config/configuration.h"
+#include "config/constraint_store.h"
 #include "config/endpoint_tls_config.h"
 #include "config/node_config.h"
 #include "config/seed_server.h"

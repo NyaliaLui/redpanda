@@ -12,6 +12,7 @@ v_cc_library(
     throughput_control_group.cc
     constraint_types.cc
     constraint_store.cc
+    constraint_method_generators.cc
   DEPS
     v::json
     v::model

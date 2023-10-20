@@ -14,7 +14,6 @@
 #include "config/broker_endpoint.h"
 #include "config/client_group_byte_rate_quota.h"
 #include "config/config_store.h"
-#include "config/constraint_types.h"
 #include "config/convert.h"
 #include "config/data_directory_path.h"
 #include "config/endpoint_tls_config.h"

@@ -27,6 +27,8 @@ class constraint_store {
 public:
     ~constraint_store() = default;
 
+    constraint& get(const ss::sstring& name);
+
     /**
      * Creates constraints based on the constraint mapping from the
      * configuration store. This implies that the broker already read the YAML
