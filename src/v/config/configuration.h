@@ -14,6 +14,7 @@
 #include "config/broker_endpoint.h"
 #include "config/client_group_byte_rate_quota.h"
 #include "config/config_store.h"
+#include "config/constraint_types.h"
 #include "config/convert.h"
 #include "config/data_directory_path.h"
 #include "config/endpoint_tls_config.h"
@@ -508,6 +509,9 @@ struct configuration final : public config_store {
     // debug controls
     property<bool> cpu_profiler_enabled;
     bounded_property<std::chrono::milliseconds> cpu_profiler_sample_period_ms;
+
+    // Constraints
+    one_or_many_map_property<constraint_args> constraints;
 
     configuration();
 

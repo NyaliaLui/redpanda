@@ -125,6 +125,14 @@ public:
 
     bool is_array() const override;
 
+    bool is_signed() const override;
+
+    bool is_unsigned() const override;
+
+    bool is_bool() const override;
+
+    bool is_milliseconds() const override;
+
     bool is_overriden() const { return is_required() || _value != _default; }
 
     bool is_default() const override { return _value == _default; }
@@ -634,6 +642,8 @@ consteval std::string_view property_type_name() {
                            pandaproxy::schema_registry::
                              schema_id_validation_mode>) {
         return "string";
+    } else if constexpr (std::is_same_v<type, constraint_args>) {
+        return "constraint_args";
     } else {
         static_assert(
           utils::unsupported_type<T>::value, "Type name not defined");
@@ -700,6 +710,31 @@ bool property<T>::is_nullable() const {
 template<typename T>
 bool property<T>::is_array() const {
     return detail::is_array<T>();
+}
+
+template<typename T>
+bool property<T>::is_signed() const {
+    return std::is_signed_v<T>;
+}
+
+template<typename T>
+bool property<T>::is_unsigned() const {
+    return std::is_unsigned_v<T>;
+}
+
+template<typename T>
+bool property<T>::is_bool() const {
+    return std::is_same_v<T, bool>;
+}
+
+template<typename T>
+bool property<T>::is_milliseconds() const {
+    if constexpr (reflection::is_std_optional<T>) {
+        return std::
+          is_same_v<typename T::value_type, std::chrono::milliseconds>;
+    } else {
+        return std::is_same_v<T, std::chrono::milliseconds>;
+    }
 }
 
 /*

@@ -1,4 +1,4 @@
-// Copyright 2022 Redpanda Data, Inc.
+// Copyright 2023 Redpanda Data, Inc.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.md
@@ -7,6 +7,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0
 
+#include "config/tests/constraint_utils.h"
 #include "config/validators.h"
 
 #include <seastar/testing/thread_test_case.hh>
@@ -99,4 +100,20 @@ SEASTAR_THREAD_TEST_CASE(test_audit_event_types) {
     std::vector<ss::sstring> one_bad_apple{
       "management", "consume", "hello world", "heartbeat"};
     BOOST_TEST(validate_audit_event_types(one_bad_apple).has_value());
+}
+
+SEASTAR_THREAD_TEST_CASE(test_invalid_constraint_config) {
+    auto valid_constraint_args = make_constraint_args(
+      config::constraint_type::restrikt);
+    auto invalid_integral_args = std::
+      unordered_map<config::constraint_args::key_type, config::constraint_args>{
+        {"invalid-integral",
+         config::constraint_args{
+           .name = "invalid-integral",
+           .type = config::constraint_type::restrikt,
+           .flags = config::range_values<int64_t>(LIMIT_MAX, LIMIT_MIN)}}};
+
+    BOOST_TEST(
+      !config::validate_constraints(valid_constraint_args).has_value());
+    BOOST_TEST(config::validate_constraints(invalid_integral_args).has_value());
 }
