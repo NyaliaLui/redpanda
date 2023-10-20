@@ -63,6 +63,8 @@ using legacy_version = named_type<int64_t, struct legacy_version_tag>;
 
 std::string_view to_string_view(visibility v);
 
+struct constraint_methods;
+
 class base_property {
 public:
     struct metadata {
@@ -148,6 +150,8 @@ public:
      * it has alternative defaults for old clusters.
      */
     virtual void notify_original_version(legacy_version) = 0;
+
+    virtual constraint_methods make_constraint_methods() const = 0;
 
 private:
     friend std::ostream& operator<<(std::ostream&, const base_property&);

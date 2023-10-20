@@ -748,6 +748,13 @@ void application::hydrate_config(const po::variables_map& cfg) {
     }
     set_auditing_kafka_client_defaults(*_audit_log_client_config);
     config_printer("audit_log_client", *_audit_log_client_config);
+
+    // The broker already read constraints from the YAML config file. Here, we
+    // convert those items to concrete constraint objects and keep them in a
+    // store.
+    ss::smp::invoke_on_all([] {
+        config::shard_local_constraints().load_constraints();
+    }).get();
 }
 
 void application::check_environment() {

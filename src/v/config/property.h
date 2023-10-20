@@ -11,6 +11,7 @@
 
 #pragma once
 #include "config/base_property.h"
+#include "config/constraint_types.h"
 #include "config/rjson_serialization.h"
 #include "json/stringbuffer.h"
 #include "json/writer.h"
@@ -81,12 +82,15 @@ public:
       base_property::metadata meta = {},
       T def = T{},
       property::validator validator = property::noop_validator,
-      std::optional<legacy_default<T>> ld = std::nullopt)
+      std::optional<legacy_default<T>> ld = std::nullopt,
+      make_constraint_methods_h constraint_methods_h
+      = property::make_default_constraint_methods)
       : base_property(conf, name, desc, meta)
       , _value(def)
       , _default(std::move(def))
       , _legacy_default(std::move(ld))
-      , _validator(std::move(validator)) {}
+      , _validator(std::move(validator))
+      , _constraint_methods_h(std::move(constraint_methods_h)) {}
 
     /**
      * Properties aren't moved in normal used on the per-shard
@@ -99,7 +103,8 @@ public:
       , _value(std::move(rhs._value))
       , _default(std::move(rhs._default))
       , _validator(std::move(rhs._validator))
-      , _bindings(std::move(rhs._bindings)) {
+      , _bindings(std::move(rhs._bindings))
+      , _constraint_methods_h(std::move(rhs._constraint_methods_h)) {
         for (auto& binding : _bindings) {
             binding._parent = this;
         }
@@ -250,8 +255,16 @@ public:
         }
     }
 
+    constraint_methods make_constraint_methods() const override {
+        return _constraint_methods_h();
+    }
+
     constexpr static auto noop_validator = [](const auto&) {
         return std::nullopt;
+    };
+
+    constexpr static auto make_default_constraint_methods = []() {
+        return constraint_methods{};
     };
 
 protected:
@@ -300,6 +313,8 @@ private:
     friend class binding_base<T>;
     friend class mock_property<T>;
     intrusive_list<binding_base<T>, &binding_base<T>::_hook> _bindings;
+
+    make_constraint_methods_h _constraint_methods_h;
 };
 
 template<class T>
@@ -841,7 +856,9 @@ public:
       std::string_view desc,
       base_property::metadata meta,
       T def,
-      std::vector<T> values)
+      std::vector<T> values,
+      make_constraint_methods_h constraint_methods_h
+      = property<T>::make_default_constraint_methods)
       : property<T>(
         conf,
         name,
@@ -858,7 +875,9 @@ public:
             } else {
                 return std::nullopt;
             }
-        })
+        },
+        std::nullopt,
+        std::move(constraint_methods_h))
       , _values(values) {}
 
     std::optional<validation_error>
@@ -943,5 +962,4 @@ private:
         }
     }
 };
-
 }; // namespace config

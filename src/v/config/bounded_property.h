@@ -189,7 +189,9 @@ public:
       base_property::metadata meta,
       T def,
       B<I> bounds,
-      std::optional<legacy_default<T>> legacy = std::nullopt)
+      std::optional<legacy_default<T>> legacy = std::nullopt,
+      make_constraint_methods_h constraint_methods_h
+      = property<T>::make_default_constraint_methods)
       : property<T>(
         conf,
         name,
@@ -211,7 +213,8 @@ public:
                 return _bounds.validate(new_value);
             }
         },
-        legacy)
+        legacy,
+        std::move(constraint_methods_h))
       , _bounds(bounds)
       , _example(generate_example()) {}
 

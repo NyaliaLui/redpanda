@@ -11,6 +11,7 @@ v_cc_library(
     validators.cc
     throughput_control_group.cc
     constraint_types.cc
+    constraint_store.cc
   DEPS
     v::json
     v::model
