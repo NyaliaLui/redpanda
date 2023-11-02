@@ -74,19 +74,21 @@ public:
     using validator =
       typename ss::noncopyable_function<std::optional<ss::sstring>(const T&)>;
 
+    struct property_args {
+        T value{T{}};
+        T def{value};
+        const std::optional<legacy_default<T>> ld{std::nullopt};
+        property::validator validator{property::noop_validator};
+    };
+
     property(
       config_store& conf,
       std::string_view name,
       std::string_view desc,
       base_property::metadata meta = {},
-      T def = T{},
-      property::validator validator = property::noop_validator,
-      std::optional<legacy_default<T>> ld = std::nullopt)
+      property_args args = {})
       : base_property(conf, name, desc, meta)
-      , _value(def)
-      , _default(std::move(def))
-      , _legacy_default(std::move(ld))
-      , _validator(std::move(validator)) {}
+      , _args(std::move(args)) {}
 
     /**
      * Properties aren't moved in normal used on the per-shard
@@ -96,9 +98,7 @@ public:
      */
     property(property<T>&& rhs)
       : base_property(rhs)
-      , _value(std::move(rhs._value))
-      , _default(std::move(rhs._default))
-      , _validator(std::move(rhs._validator))
+      , _args(std::move(rhs._args))
       , _bindings(std::move(rhs._bindings)) {
         for (auto& binding : _bindings) {
             binding._parent = this;
@@ -111,11 +111,11 @@ public:
         }
     }
 
-    const T& value() { return _value; }
+    const T& value() { return _args.value; }
 
-    const T& value() const { return _value; }
+    const T& value() const { return _args.value; }
 
-    const T& default_value() const { return _default; }
+    const T& default_value() const { return _args.def; }
 
     std::string_view type_name() const override;
 
@@ -125,9 +125,11 @@ public:
 
     bool is_array() const override;
 
-    bool is_overriden() const { return is_required() || _value != _default; }
+    bool is_overriden() const {
+        return is_required() || _args.value != _args.default;
+    }
 
-    bool is_default() const override { return _value == _default; }
+    bool is_default() const override { return _args.value == _args.default; }
 
     const T& operator()() { return value(); }
 
@@ -141,7 +143,7 @@ public:
         if (is_secret() && !is_default()) {
             o << secret_placeholder;
         } else {
-            o << _value;
+            o << _args.value;
         }
     }
 
@@ -153,7 +155,7 @@ public:
         if (is_secret() && !is_default() && redact == redact_secrets::yes) {
             json::rjson_serialize(w, secret_placeholder);
         } else {
-            json::rjson_serialize(w, _value);
+            json::rjson_serialize(w, _args.value);
         }
     }
 
@@ -174,7 +176,7 @@ public:
     }
 
     std::optional<validation_error> validate(T const& v) const {
-        if (auto err = _validator(v); err) {
+        if (auto err = _args.validator(v); err) {
             return std::make_optional<validation_error>(name().data(), *err);
         }
         return std::nullopt;
@@ -185,15 +187,15 @@ public:
         return validate(v);
     }
 
-    void reset() override { _value = default_value(); }
+    void reset() override { _args.value = default_value(); }
 
     property<T>& operator()(T v) {
-        _value = std::move(v);
+        _args.value = std::move(v);
         return *this;
     }
 
     base_property& operator=(const base_property& pr) override {
-        _value = dynamic_cast<const property<T>&>(pr)._value;
+        _args.value = dynamic_cast<const property<T>&>(pr)._args.value;
         return *this;
     }
 
@@ -220,7 +222,7 @@ public:
             if constexpr (std::is_same_v<T, bool>) {
                 // Provide an example that is the opposite of the default
                 // (i.e. an example of how to _change_ the setting)
-                return _default ? "false" : "true";
+                return _args.default ? "false" : "true";
             } else {
                 return std::nullopt;
             }
@@ -228,17 +230,16 @@ public:
     }
 
     void notify_original_version(legacy_version ov) override {
-        if (!_legacy_default.has_value()) {
+        if (!_args.ld.has_value()) {
             // Most properties have no legacy default, and ignore this.
             return;
         }
 
-        if (
-          ov <= _legacy_default.value().max_original_version && is_default()) {
-            _default = _legacy_default.value().value;
-            _value = _default;
+        if (ov <= _args.ld.value().max_original_version && is_default()) {
+            _args.default = _args.ld.value().value;
+            _args.value = _args.default;
             // In case someone already made a binding to us early in startup
-            notify_watchers(_default);
+            notify_watchers(_args.default);
         }
     }
 
@@ -269,9 +270,9 @@ protected:
     }
 
     bool update_value(T&& new_value) {
-        if (new_value != _value) {
+        if (new_value != _args.value) {
             notify_watchers(new_value);
-            _value = std::move(new_value);
+            _args.value = std::move(new_value);
 
             return true;
         } else {
@@ -279,16 +280,9 @@ protected:
         }
     }
 
-    T _value;
-    T _default;
-
-    // An alternative default that applies if the cluster's original logical
-    // version is <= the defined version
-    const std::optional<legacy_default<T>> _legacy_default;
+    property_args _args;
 
 private:
-    validator _validator;
-
     friend class binding_base<T>;
     friend class mock_property<T>;
     intrusive_list<binding_base<T>, &binding_base<T>::_hook> _bindings;
@@ -805,14 +799,14 @@ public:
       std::string_view name,
       std::string_view desc,
       base_property::metadata meta,
-      T def,
+      property<T>::property_args args,
       std::vector<T> values)
       : property<T>(
         conf,
         name,
         desc,
         meta,
-        def,
+        std::move(args),
         [this](T new_value) -> std::optional<ss::sstring> {
             auto found = std::find_if(
               _values.begin(), _values.end(), [&new_value](T const& v) {
@@ -884,7 +878,7 @@ public:
 
     void print(std::ostream& o) const final {
         vassert(!is_secret(), "{} must not be a secret", name());
-        o << name() << ":" << _value.value_or(-1ms);
+        o << name() << ":" << _args.value.value_or(-1ms);
     }
 
     // serialize the value. the key is taken from the property name at the
@@ -896,7 +890,7 @@ public:
         // non-secret; if a secret retention duration is ever introduced,
         // redact it, but consider the implications on the JSON type.
         vassert(!is_secret(), "{} must not be a secret", name());
-        json::rjson_serialize(w, _value.value_or(-1ms));
+        json::rjson_serialize(w, _args.value.value_or(-1ms));
     }
 
 private:

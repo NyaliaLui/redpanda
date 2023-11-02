@@ -39,8 +39,7 @@ configuration::configuration()
     {.needs_restart = needs_restart::no,
      .example = "2147483648",
      .visibility = visibility::tunable},
-    128_MiB,
-    {.min = 1_MiB})
+    {.value = 128_MiB} {.min = 1_MiB})
   , log_segment_size_min(
       *this,
       "log_segment_size_min",
@@ -49,7 +48,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "16777216",
        .visibility = visibility::tunable},
-      1_MiB)
+      {.value = 1_MiB})
   , log_segment_size_max(
       *this,
       "log_segment_size_max",
@@ -58,7 +57,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "268435456",
        .visibility = visibility::tunable},
-      std::nullopt)
+      {.value = std::nullopt})
   , log_segment_size_jitter_percent(
       *this,
       "log_segment_size_jitter_percent",
@@ -66,7 +65,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::yes,
        .example = "2",
        .visibility = visibility::tunable},
-      5,
+      {.value = 5},
       {.min = 0, .max = 99})
   , compacted_log_segment_size(
       *this,
@@ -76,14 +75,14 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "268435456",
        .visibility = visibility::tunable},
-      256_MiB,
+      {.value = 256_MiB},
       {.min = 1_MiB})
   , readers_cache_eviction_timeout_ms(
       *this,
       "readers_cache_eviction_timeout_ms",
       "Duration after which inactive readers will be evicted from cache",
       {.visibility = visibility::tunable},
-      30s)
+      {.value = 30s})
   , log_segment_ms(
       *this,
       "log_segment_ms",
@@ -92,7 +91,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "3600000",
        .visibility = visibility::user},
-      std::chrono::weeks{2},
+      {.value = std::chrono::weeks{2}},
       {.min = 60s})
   , log_segment_ms_min(
       *this,
@@ -102,7 +101,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "600000",
        .visibility = visibility::tunable},
-      10min)
+      {.value = 10min})
   , log_segment_ms_max(
       *this,
       "log_segment_ms_max",
@@ -111,7 +110,7 @@ configuration::configuration()
       {.needs_restart = needs_restart::no,
        .example = "31536000000",
        .visibility = visibility::tunable},
-      24h * 365)
+      {.value = 24h * 365})
   , rpc_server_listen_backlog(
       *this,
       "rpc_server_listen_backlog",

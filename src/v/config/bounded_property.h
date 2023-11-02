@@ -187,7 +187,7 @@ public:
       std::string_view name,
       std::string_view desc,
       base_property::metadata meta,
-      T def,
+      property<T>::property_args args,
       B<I> bounds,
       std::optional<legacy_default<T>> legacy = std::nullopt)
       : property<T>(
