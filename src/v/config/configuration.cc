@@ -44,7 +44,6 @@ configuration::configuration()
      .visibility = visibility::tunable},
     128_MiB,
     {.min = 1_MiB},
-    std::nullopt,
     segment_size_constraint_methods)
   , log_segment_size_min(
       *this,
@@ -99,7 +98,6 @@ configuration::configuration()
        .visibility = visibility::user},
       std::chrono::weeks{2},
       {.min = 60s},
-      std::nullopt,
       segment_ms_constraint_methods)
   , log_segment_ms_min(
       *this,
@@ -227,6 +225,7 @@ configuration::configuration()
                       // this.  This property is principally intended to be
                       // tuned downward from the default, not upward.
       },
+      make_default_constraint_methods,
       legacy_default<uint32_t>(7000, legacy_version{9}))
   , topic_partitions_reserve_shard0(
       *this,
@@ -405,6 +404,7 @@ configuration::configuration()
       "Cluster identifier",
       {.needs_restart = needs_restart::no},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , disable_metrics(
       *this,
@@ -555,8 +555,6 @@ configuration::configuration()
        .example = "compact,delete",
        .visibility = visibility::user},
       model::cleanup_policy_bitflags::deletion,
-      property<model::cleanup_policy_bitflags>::noop_validator,
-      std::nullopt,
       cleanup_policy_constraint_methods)
   , log_message_timestamp_type(
       *this,
@@ -667,6 +665,7 @@ configuration::configuration()
        .example = R"(['127.0.0.1:90', '50.20.1.1:40'])",
        .visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       validate_connection_rate)
 
   , transactional_id_expiration_ms(
@@ -723,8 +722,6 @@ configuration::configuration()
        .visibility = visibility::user,
        .aliases = {"delete_retention_ms"}},
       7 * 24h,
-      property<std::optional<std::chrono::milliseconds>>::noop_validator,
-      std::nullopt,
       retention_ms_constraint_methods)
   , log_compaction_interval_ms(
       *this,
@@ -745,8 +742,6 @@ configuration::configuration()
       "Default max bytes per partition on disk before triggering a compaction",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       std::nullopt,
-      property<std::optional<size_t>>::noop_validator,
-      std::nullopt,
       retention_bytes_constraint_methods)
   , group_topic_partitions(
       *this,
@@ -761,7 +756,6 @@ configuration::configuration()
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       1,
       {.min = 1, .oddeven = odd_even_constraint::odd},
-      std::nullopt,
       replication_factor_constraint_methods)
   , transaction_coordinator_replication(
       *this, "transaction_coordinator_replication")
@@ -823,8 +817,6 @@ configuration::configuration()
       "Default number of partitions per topic",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       1,
-      property<int32_t>::noop_validator,
-      std::nullopt,
       partition_count_constraint_methods)
   , disable_batch_cache(
       *this,
@@ -1032,6 +1024,7 @@ configuration::configuration()
        .example = "32768",
        .visibility = visibility::tunable},
       32_MiB,
+      make_default_constraint_methods,
       storage::segment_appender::validate_fallocation_step)
   , storage_target_replay_bytes(
       *this,
@@ -1138,6 +1131,7 @@ configuration::configuration()
       "A list of supported SASL mechanisms. `SCRAM` and `GSSAPI` are allowed.",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       {"SCRAM"},
+      make_default_constraint_methods,
       validate_sasl_mechanisms)
   , sasl_kerberos_config(
       *this,
@@ -1157,6 +1151,7 @@ configuration::configuration()
       "The primary of the Kerberos Service Principal Name (SPN) for Redpanda",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       "redpanda",
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , sasl_kerberos_principal_mapping(
       *this,
@@ -1164,6 +1159,7 @@ configuration::configuration()
       "Rules for mapping Kerberos Principal Names to Redpanda User Principals",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       {"DEFAULT"},
+      make_default_constraint_methods,
       security::validate_kerberos_mapping_rules)
   , kafka_enable_authorization(
       *this,
@@ -1181,6 +1177,7 @@ configuration::configuration()
       "Principal Mapping Rules for mTLS Authentication on the Kafka API",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       security::tls::validate_rules)
   , kafka_enable_partition_reassignment(
       *this,
@@ -1213,8 +1210,6 @@ configuration::configuration()
       "limit applies to compressed batch size",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
       1_MiB,
-      property<uint32_t>::noop_validator,
-      std::nullopt,
       kafka_batch_max_bytes_constraint_methods)
   , kafka_nodelete_topics(
       *this,
@@ -1222,6 +1217,7 @@ configuration::configuration()
       "Prevents the topics in the list from being deleted via the kafka api",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       {"__audit", "__consumer_offsets", "_schemas"},
+      make_default_constraint_methods,
       &validate_non_empty_string_vec)
   , kafka_noproduce_topics(
       *this,
@@ -1230,6 +1226,7 @@ configuration::configuration()
       "via the kafka api",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       {"__audit"},
+      make_default_constraint_methods,
       &validate_non_empty_string_vec)
   , compaction_ctrl_update_interval_ms(
       *this,
@@ -1304,6 +1301,7 @@ configuration::configuration()
        .example = R"(['127.0.0.1:90', '50.20.1.1:40'])",
        .visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       validate_connection_rate)
   , kafka_client_group_byte_rate_quota(
       *this,
@@ -1316,6 +1314,7 @@ configuration::configuration()
        = R"([{'group_name': 'first_group','clients_prefix': 'group_1','quota': 10240}])",
        .visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       validate_client_groups_byte_rate_quota)
   , kafka_client_group_fetch_byte_rate_quota(
       *this,
@@ -1328,6 +1327,7 @@ configuration::configuration()
        = R"([{'group_name': 'first_group','clients_prefix': 'group_1','quota': 10240}])",
        .visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       validate_client_groups_byte_rate_quota)
   , kafka_rpc_server_tcp_recv_buf(
       *this,
@@ -1424,6 +1424,7 @@ configuration::configuration()
         .visibility = visibility::user,
       },
       {"management"},
+      make_default_constraint_methods,
       validate_audit_event_types)
   , cloud_storage_enabled(
       *this,
@@ -1437,8 +1438,6 @@ configuration::configuration()
       "Default remote read config value for new topics",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
       false,
-      property<bool>::noop_validator,
-      std::nullopt,
       remote_read_constraint_methods)
   , cloud_storage_enable_remote_write(
       *this,
@@ -1446,8 +1445,6 @@ configuration::configuration()
       "Default remote write value for new topics",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
       false,
-      property<bool>::noop_validator,
-      std::nullopt,
       remote_write_constraint_methods)
   , cloud_storage_access_key(
       *this,
@@ -1455,6 +1452,7 @@ configuration::configuration()
       "AWS access key",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_secret_key(
       *this,
@@ -1462,6 +1460,7 @@ configuration::configuration()
       "AWS secret key",
       {.visibility = visibility::user, .secret = is_secret::yes},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_region(
       *this,
@@ -1469,6 +1468,7 @@ configuration::configuration()
       "AWS region that houses the bucket used for storage",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_bucket(
       *this,
@@ -1476,6 +1476,7 @@ configuration::configuration()
       "AWS bucket that should be used to store data",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_api_endpoint(
       *this,
@@ -1483,6 +1484,7 @@ configuration::configuration()
       "Optional API endpoint",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_credentials_source(
       *this,
@@ -1544,6 +1546,7 @@ configuration::configuration()
       "during TLS handshake",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_initial_backoff_ms(
       *this,
@@ -1784,6 +1787,7 @@ configuration::configuration()
       "when using IAM role based access.",
       {.needs_restart = needs_restart::yes, .visibility = visibility::tunable},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_spillover_manifest_size(
       *this,
@@ -1851,6 +1855,7 @@ configuration::configuration()
       "The name of the Azure storage account to use with Tiered Storage",
       {.needs_restart = needs_restart::yes, .visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_azure_container(
       *this,
@@ -1859,6 +1864,7 @@ configuration::configuration()
       "the container must belong to 'cloud_storage_azure_storage_account'",
       {.needs_restart = needs_restart::yes, .visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_azure_shared_key(
       *this,
@@ -1871,6 +1877,7 @@ configuration::configuration()
        .visibility = visibility::user,
        .secret = is_secret::yes},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_azure_adls_endpoint(
       *this,
@@ -1880,6 +1887,7 @@ configuration::configuration()
       "custom endpoint.",
       {.needs_restart = needs_restart::yes, .visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       &validate_non_empty_string_opt)
   , cloud_storage_azure_adls_port(
       *this,
@@ -1925,8 +1933,6 @@ configuration::configuration()
       "write enabled",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       std::nullopt,
-      property<std::optional<size_t>>::noop_validator,
-      std::nullopt,
       retention_local_target_bytes_constraint_methods)
   , retention_local_target_ms_default(
       *this,
@@ -1935,8 +1941,6 @@ configuration::configuration()
       "write enabled",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       24h,
-      property<std::chrono::milliseconds>::noop_validator,
-      std::nullopt,
       retention_local_target_ms_constraint_methods)
   , retention_local_strict(
       *this,
@@ -1947,6 +1951,7 @@ configuration::configuration()
       "storage reaches the configured target size.",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       false,
+      make_default_constraint_methods,
       property<bool>::noop_validator,
       legacy_default<bool>(true, legacy_version{9}))
   , retention_local_target_capacity_bytes(
@@ -1959,6 +1964,7 @@ configuration::configuration()
        .example = "2147483648000",
        .visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       property<std::optional<size_t>>::noop_validator,
       legacy_default<std::optional<size_t>>(std::nullopt, legacy_version{9}))
   , retention_local_target_capacity_percent(
@@ -1973,6 +1979,7 @@ configuration::configuration()
        .visibility = visibility::user},
       80.0,
       {.min = 0.0, .max = 100.0},
+      make_default_constraint_methods,
       legacy_default<std::optional<double>>(std::nullopt, legacy_version{9}))
   , retention_local_trim_interval(
       *this,
@@ -2000,6 +2007,7 @@ configuration::configuration()
       "Enable automatic space management.",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       true,
+      make_default_constraint_methods,
       property<bool>::noop_validator,
       legacy_default<bool>(false, legacy_version{9}))
   , disk_reservation_percent(
@@ -2016,6 +2024,7 @@ configuration::configuration()
        .visibility = visibility::tunable},
       25.0,
       {.min = 0.0, .max = 100.0},
+      make_default_constraint_methods,
       legacy_default<double>(0.0, legacy_version{9}))
   , space_management_max_log_concurrency(
       *this,
@@ -2041,6 +2050,7 @@ configuration::configuration()
       "Max size of archival cache",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       0,
+      make_default_constraint_methods,
       property<uint64_t>::noop_validator,
       legacy_default<uint64_t>(20_GiB, legacy_version{9}))
   , cloud_storage_cache_size_percent(
@@ -2055,6 +2065,7 @@ configuration::configuration()
        .visibility = visibility::user},
       20.0,
       {.min = 0.0, .max = 100.0},
+      make_default_constraint_methods,
       legacy_default<std::optional<double>>(std::nullopt, legacy_version{9}))
   , cloud_storage_cache_max_objects(
       *this,
@@ -2311,6 +2322,7 @@ configuration::configuration()
       "when the inprogress moves are < 80.",
       {.needs_restart = needs_restart::no, .visibility = visibility::tunable},
       0.2,
+      make_default_constraint_methods,
       &validate_0_to_1_ratio)
   , partition_autobalancing_min_size_threshold(
       *this,
@@ -2606,6 +2618,7 @@ configuration::configuration()
       "by the balancer.",
       {.needs_restart = needs_restart::no, .visibility = visibility::user},
       0.01,
+      make_default_constraint_methods,
       &validate_0_to_1_ratio)
   , kafka_quota_balancer_min_shard_throughput_bps(
       *this,
@@ -2637,6 +2650,7 @@ configuration::configuration()
         .visibility = visibility::user,
       },
       {},
+      make_default_constraint_methods,
       [](auto& v) {
           return validate_throughput_control_groups(v.cbegin(), v.cend());
       })
@@ -2722,6 +2736,7 @@ configuration::configuration()
        = R"([{'name': 'default_topic_replications','type': 'restrict','min': 3, 'max': 9}])",
        .visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       validate_constraints) {}
 
 configuration::error_map_t configuration::load(const YAML::Node& root_node) {

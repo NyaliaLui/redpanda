@@ -33,6 +33,7 @@ node_config::node_config() noexcept
       "will be assigned for this node when it joins the cluster",
       {.visibility = visibility::user},
       std::nullopt,
+      make_default_constraint_methods,
       [](std::optional<model::node_id> id) -> std::optional<ss::sstring> {
           if (id && (*id)() < 0) {
               return fmt::format("Negative node_id ({}) not allowed", *id);
@@ -53,6 +54,7 @@ node_config::node_config() noexcept
       "form a new cluster",
       {.visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       [](std::vector<seed_server> s) -> std::optional<ss::sstring> {
           std::sort(s.begin(), s.end());
           const auto s_dupe_i = std::adjacent_find(s.cbegin(), s.cend());
@@ -85,6 +87,7 @@ node_config::node_config() noexcept
       "TLS configuration for RPC server",
       {.visibility = visibility::user},
       tls_config(),
+      make_default_constraint_methods,
       tls_config::validate)
   , kafka_api(
       *this,
@@ -100,6 +103,7 @@ node_config::node_config() noexcept
       "TLS configuration for Kafka API endpoint",
       {.visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       endpoint_tls_config::validate_many)
   , admin(
       *this,
@@ -113,6 +117,7 @@ node_config::node_config() noexcept
       "TLS configuration for admin HTTP server",
       {.visibility = visibility::user},
       {},
+      make_default_constraint_methods,
       endpoint_tls_config::validate_many)
   , coproc_supervisor_server(*this, "coproc_supervisor_server")
   , emergency_disable_data_transforms(

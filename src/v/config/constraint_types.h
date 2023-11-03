@@ -133,6 +133,10 @@ struct constraint_methods {
     constraint_methods& operator=(constraint_methods&&) noexcept = default;
 };
 
+inline constexpr auto make_default_constraint_methods = []() {
+    return constraint_methods{};
+};
+
 using make_constraint_methods_h
   = ss::noncopyable_function<constraint_methods()>;
 

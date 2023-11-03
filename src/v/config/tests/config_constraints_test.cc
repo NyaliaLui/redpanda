@@ -36,7 +36,6 @@ struct test_config : public config::config_store {
         {},
         1,
         {},
-        std::nullopt,
         config::replication_factor_constraint_methods)
       , log_cleanup_policy(
           *this,
@@ -44,8 +43,6 @@ struct test_config : public config::config_store {
           "An enum property",
           {},
           model::cleanup_policy_bitflags::deletion,
-          config::property<model::cleanup_policy_bitflags>::noop_validator,
-          std::nullopt,
           config::cleanup_policy_constraint_methods)
       , log_retention_ms(
           *this,
@@ -53,9 +50,6 @@ struct test_config : public config::config_store {
           "A ms property",
           {},
           1h,
-          config::property<
-            std::optional<std::chrono::milliseconds>>::noop_validator,
-          std::nullopt,
           config::retention_ms_constraint_methods)
       , restrict_constraints(
           *this,

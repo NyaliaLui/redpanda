@@ -81,16 +81,16 @@ public:
       std::string_view desc,
       base_property::metadata meta = {},
       T def = T{},
-      property::validator validator = property::noop_validator,
-      std::optional<legacy_default<T>> ld = std::nullopt,
       make_constraint_methods_h constraint_methods_h
-      = property::make_default_constraint_methods)
+      = make_default_constraint_methods,
+      property::validator validator = property::noop_validator,
+      std::optional<legacy_default<T>> ld = std::nullopt)
       : base_property(conf, name, desc, meta)
       , _value(def)
       , _default(std::move(def))
       , _legacy_default(std::move(ld))
-      , _validator(std::move(validator))
-      , _constraint_methods_h(std::move(constraint_methods_h)) {}
+      , _constraint_methods_h(std::move(constraint_methods_h))
+      , _validator(std::move(validator)) {}
 
     /**
      * Properties aren't moved in normal used on the per-shard
@@ -102,9 +102,9 @@ public:
       : base_property(rhs)
       , _value(std::move(rhs._value))
       , _default(std::move(rhs._default))
+      , _constraint_methods_h(std::move(rhs._constraint_methods_h))
       , _validator(std::move(rhs._validator))
-      , _bindings(std::move(rhs._bindings))
-      , _constraint_methods_h(std::move(rhs._constraint_methods_h)) {
+      , _bindings(std::move(rhs._bindings)) {
         for (auto& binding : _bindings) {
             binding._parent = this;
         }
@@ -263,10 +263,6 @@ public:
         return std::nullopt;
     };
 
-    constexpr static auto make_default_constraint_methods = []() {
-        return constraint_methods{};
-    };
-
 protected:
     void notify_watchers(const T& new_value) {
         std::exception_ptr ex;
@@ -308,13 +304,12 @@ protected:
     const std::optional<legacy_default<T>> _legacy_default;
 
 private:
+    make_constraint_methods_h _constraint_methods_h;
     validator _validator;
 
     friend class binding_base<T>;
     friend class mock_property<T>;
     intrusive_list<binding_base<T>, &binding_base<T>::_hook> _bindings;
-
-    make_constraint_methods_h _constraint_methods_h;
 };
 
 template<class T>
@@ -858,13 +853,14 @@ public:
       T def,
       std::vector<T> values,
       make_constraint_methods_h constraint_methods_h
-      = property<T>::make_default_constraint_methods)
+      = make_default_constraint_methods)
       : property<T>(
         conf,
         name,
         desc,
         meta,
         def,
+        std::move(constraint_methods_h),
         [this](T new_value) -> std::optional<ss::sstring> {
             auto found = std::find_if(
               _values.begin(), _values.end(), [&new_value](T const& v) {
@@ -875,9 +871,7 @@ public:
             } else {
                 return std::nullopt;
             }
-        },
-        std::nullopt,
-        std::move(constraint_methods_h))
+        })
       , _values(values) {}
 
     std::optional<validation_error>
