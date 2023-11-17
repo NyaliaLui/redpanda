@@ -1,4 +1,4 @@
-// Copyright 2020 Redpanda Data, Inc.
+// Copyright 2023 Redpanda Data, Inc.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.md
@@ -13,6 +13,7 @@
 #include "cluster/metadata_cache.h"
 #include "cluster/topics_frontend.h"
 #include "config/configuration.h"
+#include "config/constraints.h"
 #include "kafka/protocol/errors.h"
 #include "kafka/protocol/timeout.h"
 #include "kafka/server/handlers/topics/config_map.h"
@@ -22,6 +23,7 @@
 #include "kafka/types.h"
 #include "model/metadata.h"
 #include "security/acl.h"
+#include "ssx/sformat.h"
 #include "utils/to_string.h"
 
 #include <seastar/core/future.hh>
@@ -299,6 +301,20 @@ ss::future<response_ptr> create_topics_handler::handle(
     valid_range_end = quota_exceeded_it;
 
     auto to_create = to_cluster_type(begin, valid_range_end);
+
+    // to_create is a vector<cluster::custom_assignable_topic_configuration> and
+    // that object has the topic_configuration object with each topic_property
+    // value.
+    const auto& constraints = config::shard_local_cfg().constraints();
+    for (auto& custom_cfg : to_create) {
+        for (const auto& [property_name, constraint] : constraints) {
+            apply_constraint(
+              custom_cfg.cfg,
+              constraint,
+              creatable_topic_result{.name = custom_cfg.cfg.tp_ns.tp},
+              std::back_inserter(response.data.topics));
+        }
+    }
 
     // Create the topics with controller on core 0
     auto c_res = co_await ctx.topics_frontend().create_topics(

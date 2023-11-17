@@ -2188,3 +2188,60 @@ class ConfigConstraintsParseTest(RedpandaTest):
         # Search for the yaml parse error
         pattern = ".*Invalid bootstrap property 'constraints'.*TypedBadConversion<config::constraint_t>.*"
         assert self.redpanda.search_log_all(pattern)
+
+
+from rptest.util import wait_until_result
+
+
+class TryChangeRFTest(RedpandaTest):
+    topics = [TopicSpec(replication_factor=5)]
+
+    def __init__(self, *args, **kwargs):
+        super(TryChangeRFTest, self).__init__(*args, num_brokers=5, **kwargs)
+
+    def _get_assignments(self, admin, topic, partition):
+        def try_get_partitions():
+            try:
+                res = admin.get_partitions(topic, partition)
+                return (True, res)
+            except requests.exceptions.HTTPError:
+                # Retry HTTP errors, eg. 404 if the receiving node's controller
+                # is catching up and doesn't yet know about the partition.
+                return (False, None)
+
+        res = wait_until_result(try_get_partitions,
+                                timeout_sec=30,
+                                backoff_sec=1)
+
+        def normalize(a):
+            return dict(node_id=a["node_id"], core=a["core"])
+
+        return [normalize(a) for a in res["replicas"]]
+
+    def _done(self, admin, topic, partition, assignment):
+        def equal_assignments(r0, r1):
+            def to_tuple(a):
+                return a["node_id"], a["core"]
+
+            r0 = [to_tuple(a) for a in r0]
+            r1 = [to_tuple(a) for a in r1]
+            return set(r0) == set(r1)
+
+        def check_done():
+            info = admin.get_partitions(topic, partition)
+
+            converged = equal_assignments(info["replicas"], assignment)
+            return converged and info["status"] == "done"
+
+        wait_until(check_done, timeout_sec=30, backoff_sec=2)
+
+    @cluster(num_nodes=5)
+    def test_change_rf(self):
+        admin = Admin(self.redpanda)
+        assignment = self._get_assignments(admin, self.topic, partition=0)
+        self.logger.debug(f'Original assignment {assignment}')
+        new_assignment = assignment[0:3]
+        admin.set_partition_replicas(self.topic, 0, new_assignment)
+        self._done(admin, self.topic, 0, new_assignment)
+        assignment = self._get_assignments(admin, self.topic, partition=0)
+        self.logger.debug(f'New assignment {assignment}')
