@@ -288,6 +288,21 @@ create_topic_properties_update(
                 e.what()));
         }
 
+        // const auto& constraints = config::shard_local_cfg().constraints();
+        // for (const auto& [_, constraint] : constraints) {
+        //   //TODO(@NyaliaLui): Either make an overload for properties_update,
+        //   or create conversion
+        //   // operators for properties update and topic configuration.
+        //     if (!config::valid_topic_properties_update(update, constraint)) {
+        //         return make_error_alter_config_resource_response<
+        //           alter_configs_resource_response>(
+        //           resource,
+        //           error_code::invalid_config,
+        //           fmt::format(
+        //             "Configuration breaks constraint {}", constraint.name));
+        //     }
+        // }
+
         // Unsupported property, return error
         return make_error_alter_config_resource_response<
           alter_configs_resource_response>(

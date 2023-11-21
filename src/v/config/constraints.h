@@ -148,6 +148,14 @@ void get_constraint_min_max(
     }
 }
 
+/**
+ * Checks if a topic configuration is valid w.r.t a constraint. Returns false if
+ * configuration breaks a restrict constraint. Also, applies clamp contraints to
+ * the configuration.
+ */
+bool valid_topic_config(
+  cluster::topic_configuration& topic_cfg, const constraint_t& constraint);
+
 namespace detail {
 
 template<>

@@ -160,6 +160,11 @@ metadata_response::topic make_topic_response_from_topic_metadata(
     return tp;
 }
 
+metadata_response::topic
+make_error_topic_response(model::topic tp, error_code ec) {
+    return metadata_response::topic{.error_code = ec, .name = std::move(tp)};
+}
+
 static ss::future<metadata_response::topic> create_topic(
   request_context& ctx,
   model::topic&& topic,
@@ -170,10 +175,8 @@ static ss::future<metadata_response::topic> create_topic(
           "Can not autocreate topic({}) in metadata request, because node is "
           "isolated",
           topic);
-        metadata_response::topic t;
-        t.name = std::move(topic);
-        t.error_code = error_code::broker_not_available;
-        return ss::make_ready_future<metadata_response::topic>(std::move(t));
+        return ss::make_ready_future<metadata_response::topic>(
+          make_error_topic_response(topic, error_code::broker_not_available));
     }
     // default topic configuration
     cluster::topic_configuration cfg{
@@ -181,6 +184,15 @@ static ss::future<metadata_response::topic> create_topic(
       topic,
       config::shard_local_cfg().default_topic_partitions(),
       config::shard_local_cfg().default_topic_replication()};
+
+    const auto& constraints = config::shard_local_cfg().constraints();
+    for (const auto& [_, constraint] : constraints) {
+        if (!valid_topic_config(cfg, constraint)) {
+            return ss::make_ready_future<metadata_response::topic>(
+              make_error_topic_response(topic, error_code::invalid_config));
+        }
+    }
+
     auto tout = config::shard_local_cfg().create_topic_timeout_ms();
     return ctx.topics_frontend()
       .autocreate_topics({std::move(cfg)}, tout)
@@ -227,11 +239,6 @@ static ss::future<metadata_response::topic> create_topic(
           t.error_code = error_code::request_timed_out;
           return t;
       });
-}
-
-metadata_response::topic
-make_error_topic_response(model::topic tp, error_code ec) {
-    return metadata_response::topic{.error_code = ec, .name = std::move(tp)};
 }
 
 static metadata_response::topic make_topic_response(

@@ -13,6 +13,7 @@ import os
 import pprint
 import random
 import re
+import subprocess
 import tempfile
 import time
 from typing import Any, NamedTuple, Protocol
@@ -113,6 +114,11 @@ def wait_for_version_status_sync(admin, redpanda, version, nodes=None):
                    timeout_sec=10,
                    backoff_sec=0.5,
                    err_msg=f"Config status did not converge on {version}")
+
+
+class ConstraintType(str, Enum):
+    RESTRIKT = 'restrict'
+    CLAMP = 'clamp'
 
 
 class ClusterConfigUpgradeTest(RedpandaTest):
@@ -2168,6 +2174,109 @@ class ConfigConstraintsTest(RedpandaTest):
         constraints = sorted(constraints, key=lambda con: con['name'])
         assert constraints[0] == self.LOG_CLEANUP_CONSTRAINT
         assert constraints[1] == self.LOG_RETENTION_CONSTRAINT
+
+    @cluster(
+        num_nodes=3,
+        log_allow_list=[
+            r"Constraints failure\[value out\-of\-range\]: topic property topic-[a-zA-Z]+\.retention\.ms, value {\d+}",
+        ])
+    @parametrize(constraint_type=ConstraintType.RESTRIKT)
+    @parametrize(constraint_type=ConstraintType.CLAMP)
+    def test_create_topics(self, constraint_type: ConstraintType):
+        admin = Admin(self.redpanda)
+
+        self.LOG_RETENTION_CONSTRAINT['type'] = constraint_type
+        patch_result = admin.patch_cluster_config(
+            upsert={'constraints': [self.LOG_RETENTION_CONSTRAINT]},
+            node=self.redpanda.nodes[0])
+        wait_for_version_sync(admin, self.redpanda,
+                              patch_result['config_version'])
+
+        topic = TopicSpec(retention_ms=self.RETENTION_MS_MAX + 1)
+        try:
+            self.client().create_topic(topic)
+        except subprocess.CalledProcessError as ex:
+            if constraint_type == ConstraintType.RESTRIKT:
+                self.logger.debug(f'Nyalia {ex}')
+            else:
+                raise
+
+        # Check the topic describe shows that retention duration is max.
+        if constraint_type == ConstraintType.CLAMP:
+            cli = KafkaCliTools(self.redpanda)
+            spec = cli.describe_topic(str(topic))
+            assert spec.retention_ms == self.RETENTION_MS_MAX, f'{spec.retention_ms}!={self.RETENTION_MS_MAX}, expected equal'
+
+    @cluster(
+        num_nodes=3,
+        log_allow_list=[
+            r"Constraints failure\[value out\-of\-range\]: topic property \.num\.partitions, value {\d+}",
+        ])
+    @parametrize(constraint_type=ConstraintType.RESTRIKT)
+    @parametrize(constraint_type=ConstraintType.CLAMP)
+    def test_add_partitions(self, constraint_type: ConstraintType):
+        admin = Admin(self.redpanda)
+
+        # Use partition count constraint
+        partition_count_constraint = {
+            'name': 'default_topic_partitions',
+            'type': constraint_type,
+            'min': 1,
+            'max': 3
+        }
+        patch_result = admin.patch_cluster_config(
+            upsert={'constraints': [partition_count_constraint]},
+            node=self.redpanda.nodes[0])
+        wait_for_version_sync(admin, self.redpanda,
+                              patch_result['config_version'])
+
+        rpk = RpkTool(self.redpanda)
+        try:
+            rpk.add_partitions(self.topic, partition_count_constraint['max'])
+        except RpkException as ex:
+            if constraint_type == ConstraintType.RESTRIKT:
+                self.logger.debug(f'James {ex}')
+            else:
+                raise
+
+        # Check the topic describe shows that the partition count is max.
+        if constraint_type == ConstraintType.CLAMP:
+            cli = KafkaCliTools(self.redpanda)
+            spec = cli.describe_topic(self.topic)
+            max_count = partition_count_constraint['max']
+            assert spec.partition_count == max_count, f'{spec.partition_count}!={max_count}, expected equal'
+
+    @cluster(
+        num_nodes=3,
+        log_allow_list=[
+            r"Constraints failure\[value out\-of\-range\]: topic property topic-[a-zA-Z]+\.retention\.ms, value {\d+}",
+        ])
+    @parametrize(constraint_type=ConstraintType.RESTRIKT)
+    @parametrize(constraint_type=ConstraintType.CLAMP)
+    def test_alter_configs(self, constraint_type: ConstraintType):
+        admin = Admin(self.redpanda)
+        self.LOG_RETENTION_CONSTRAINT['type'] = constraint_type
+        patch_result = admin.patch_cluster_config(
+            upsert={'constraints': [self.LOG_RETENTION_CONSTRAINT]},
+            node=self.redpanda.nodes[0])
+        wait_for_version_sync(admin, self.redpanda,
+                              patch_result['config_version'])
+
+        rpk = RpkTool(self.redpanda)
+        try:
+            rpk.alter_topic_config(self.topic, 'retention.ms',
+                                   self.RETENTION_MS_MAX + 1)
+        except RpkException as ex:
+            if constraint_type == ConstraintType.RESTRIKT:
+                self.logger.debug(f'Korsuk {ex}')
+            else:
+                raise
+
+        # Check the topic describe shows that the partition count is max.
+        if constraint_type == ConstraintType.CLAMP:
+            cli = KafkaCliTools(self.redpanda)
+            spec = cli.describe_topic(self.topic)
+            assert spec.retention_ms == self.RETENTION_MS_MAX, f'{spec.retention_ms}!={self.RETENTION_MS_MAX}, expected equal'
 
 
 class ConfigConstraintsParseTest(RedpandaTest):

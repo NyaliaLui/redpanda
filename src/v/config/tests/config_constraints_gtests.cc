@@ -12,7 +12,6 @@
 #include "config/configuration.h"
 #include "config/property.h"
 #include "config/tests/constraint_utils.h"
-#include "kafka/server/handlers/topics/topic_utils.h"
 #include "model/fundamental.h"
 #include "test_utils/test.h"
 
@@ -185,23 +184,13 @@ TEST(ConfigConstraintsTest, ConstraintApply) {
     {
         cluster::topic_configuration topic_cfg;
         topic_cfg.replication_factor = LIMIT_MIN;
-        std::vector<kafka::creatable_topic_result> err_vec;
 
         // Restrict constraint - expect no error
-        apply_constraint(
-          topic_cfg,
-          restrict_constraint,
-          kafka::creatable_topic_result{},
-          std::back_inserter(err_vec));
-        EXPECT_TRUE(err_vec.empty());
+        EXPECT_TRUE(config::valid_topic_config(topic_cfg, restrict_constraint));
 
         // Clamp constraint - expect that the RF is unchanged
         auto copy_rf = topic_cfg.replication_factor;
-        apply_constraint(
-          topic_cfg,
-          clamp_constraint,
-          kafka::creatable_topic_result{},
-          std::back_inserter(err_vec));
+        EXPECT_TRUE(config::valid_topic_config(topic_cfg, clamp_constraint));
         EXPECT_EQ(topic_cfg.replication_factor, copy_rf);
     }
 
@@ -209,24 +198,13 @@ TEST(ConfigConstraintsTest, ConstraintApply) {
     {
         cluster::topic_configuration topic_cfg;
         topic_cfg.replication_factor = LIMIT_MIN - 1;
-        std::vector<kafka::creatable_topic_result> err_vec;
-        kafka::creatable_topic_result err_res{
-          .name = model::topic{"test_topic"}};
 
         // Restrict constraint - expect error
-        apply_constraint(
-          topic_cfg, restrict_constraint, err_res, std::back_inserter(err_vec));
-        EXPECT_EQ(err_vec.size(), 1);
-        EXPECT_EQ(err_vec[0].error_code, kafka::error_code::invalid_config);
-        EXPECT_TRUE(err_vec[0].error_message.has_value());
-        EXPECT_EQ(
-          *err_vec[0].error_message,
-          ss::sstring{
-            "Configuration breaks constraint default_topic_replications"});
+        EXPECT_FALSE(
+          config::valid_topic_config(topic_cfg, restrict_constraint));
 
         // Clamp constraint - expect that the RF is the minimum
-        apply_constraint(
-          topic_cfg, clamp_constraint, err_res, std::back_inserter(err_vec));
+        EXPECT_TRUE(config::valid_topic_config(topic_cfg, clamp_constraint));
         EXPECT_EQ(topic_cfg.replication_factor, LIMIT_MIN);
     }
 }
