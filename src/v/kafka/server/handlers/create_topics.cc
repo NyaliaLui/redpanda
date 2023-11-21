@@ -312,7 +312,7 @@ ss::future<response_ptr> create_topics_handler::handle(
               auto custom_cfg = to_cluster_type(t);
               // TODO(@NyaliaLui): Convert the topic config back to
               // creatable_topic.
-              return config::valid_topic_config(custom_cfg.cfg, constraint);
+              return config::apply_constraint(custom_cfg.cfg, constraint);
           });
     }
 

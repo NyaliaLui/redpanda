@@ -186,11 +186,11 @@ TEST(ConfigConstraintsTest, ConstraintApply) {
         topic_cfg.replication_factor = LIMIT_MIN;
 
         // Restrict constraint - expect no error
-        EXPECT_TRUE(config::valid_topic_config(topic_cfg, restrict_constraint));
+        EXPECT_TRUE(config::apply_constraint(topic_cfg, restrict_constraint));
 
         // Clamp constraint - expect that the RF is unchanged
         auto copy_rf = topic_cfg.replication_factor;
-        EXPECT_TRUE(config::valid_topic_config(topic_cfg, clamp_constraint));
+        EXPECT_TRUE(config::apply_constraint(topic_cfg, clamp_constraint));
         EXPECT_EQ(topic_cfg.replication_factor, copy_rf);
     }
 
@@ -200,11 +200,10 @@ TEST(ConfigConstraintsTest, ConstraintApply) {
         topic_cfg.replication_factor = LIMIT_MIN - 1;
 
         // Restrict constraint - expect error
-        EXPECT_FALSE(
-          config::valid_topic_config(topic_cfg, restrict_constraint));
+        EXPECT_FALSE(config::apply_constraint(topic_cfg, restrict_constraint));
 
         // Clamp constraint - expect that the RF is the minimum
-        EXPECT_TRUE(config::valid_topic_config(topic_cfg, clamp_constraint));
+        EXPECT_TRUE(config::apply_constraint(topic_cfg, clamp_constraint));
         EXPECT_EQ(topic_cfg.replication_factor, LIMIT_MIN);
     }
 }

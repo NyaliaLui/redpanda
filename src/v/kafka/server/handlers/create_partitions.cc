@@ -294,7 +294,7 @@ ss::future<response_ptr> create_partitions_handler::handle(
           ssx::sformat("Configuration breaks constraint {}", constraint->name),
           [&constraint, &topic_cfg](create_partitions_topic& tp) {
               topic_cfg.partition_count = tp.count;
-              auto valid = config::valid_topic_config(topic_cfg, *constraint);
+              auto valid = config::apply_constraint(topic_cfg, *constraint);
               tp.count = topic_cfg.partition_count;
               return valid;
           });

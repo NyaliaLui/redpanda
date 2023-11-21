@@ -187,7 +187,7 @@ static ss::future<metadata_response::topic> create_topic(
 
     const auto& constraints = config::shard_local_cfg().constraints();
     for (const auto& [_, constraint] : constraints) {
-        if (!valid_topic_config(cfg, constraint)) {
+        if (!apply_constraint(cfg, constraint)) {
             return ss::make_ready_future<metadata_response::topic>(
               make_error_topic_response(topic, error_code::invalid_config));
         }

@@ -92,8 +92,8 @@ using constraint_map_t
  * \param topic_cfg: the topic configuration
  * \param constraint: the constraint
  */
-bool topic_config_satisfies_constraint(
-  const cluster::topic_configuration&, const constraint_t&);
+// bool topic_config_satisfies_constraint(
+//   const cluster::topic_configuration&, const constraint_t&);
 
 /**
  * Clamps topic properties based on the constraint
@@ -149,12 +149,11 @@ void get_constraint_min_max(
 }
 
 /**
- * Checks if a topic configuration is valid w.r.t a constraint. Returns false if
- * configuration breaks a restrict constraint. Also, applies clamp contraints to
- * the configuration.
+ * Applies a constraint to the topic configuration. Returns false if
+ * configuration breaks a restrict constraint, true otherwise. Clamp constraints
+ * will overwrite topic config values.
  */
-bool valid_topic_config(
-  cluster::topic_configuration& topic_cfg, const constraint_t& constraint);
+bool apply_constraint(cluster::topic_configuration& topic_cfg, constraint_t& constraint);
 
 namespace detail {
 
