@@ -26,6 +26,12 @@ from rptest.clients.kafka_cli_tools import KafkaCliTools
 from rptest.clients.kcl import KCL
 from typing import Optional
 
+from rptest.clients.default import DefaultClient
+from rptest.services.kafka import KafkaServiceAdapter
+from kafkatest.services.kafka import KafkaService
+from kafkatest.services.zookeeper import ZookeeperService
+from kafkatest.version import V_3_0_0
+
 
 def get_topics_and_partitions(reassignments: dict):
     topic_names = []
@@ -492,6 +498,110 @@ class PartitionReassignmentsTest(RedpandaTest):
             assert "alter partition reassignments should have failed"
         except subprocess.CalledProcessError as e:
             assert "AlterPartitionReassignment API is disabled. See" in e.output
+
+    @cluster(num_nodes=6)
+    def test_partition_count_change(self):
+        all_topic_names = [self.topics[0].name, self.topics[1].name]
+        initial_assignments, all_node_idx, producers = self.initial_setup_steps(
+            producer_config={
+                "topics": all_topic_names,
+                "throughput": 1024
+            })
+
+        self.wait_producers(producers, num_messages=100000)
+
+        # Copy initial assignments into reassignment
+        reassignments = {}
+        for assignment in initial_assignments:
+            if assignment.name not in reassignments:
+                reassignments[assignment.name] = {}
+
+            for partition in assignment.partitions:
+                assert partition.id not in reassignments[assignment.name]
+                assert len(partition.replicas) == self.REPLICAS_COUNT
+                reassignments[assignment.name][
+                    partition.id] = partition.replicas
+        '''
+        reassignment:
+        {
+            'topic1': {
+                0: [1,2,3],
+                1: [0,2,3],
+                2: [3,1,2],
+                ...
+            },
+            'topic2': {
+                0: [1,2,3],
+                1: [0,2,3],
+                2: [3,1,2],
+                ...
+            },
+            ...
+        }
+        '''
+        # Sort initial assignments by partitions and take a copy of the last partition assignment
+        self.logger.debug(json.dumps(reassignments, indent=2))
+        for topic in reassignments:
+            reassignments[topic] = dict(sorted(reassignments[topic].items()))
+        self.logger.debug(json.dumps(reassignments, indent=2))
+        for topic in reassignments:
+            last_partition = list(reassignments[topic].keys())[-1]
+            last_reassignment = reassignments[topic][last_partition]
+            missing_node_idx = self.get_missing_node_idx(
+                all_node_idx, last_reassignment)
+            last_reassignment[2] = missing_node_idx
+            # Increment the last partition id so we are adding a new one
+            reassignments[topic][last_partition + 1] = last_reassignment
+        self.logger.debug(json.dumps(reassignments, indent=2))
+
+        # Execute reassignment
+        self.logger.debug(
+            f"Attempting to change partition count. New assignments: {reassignments}"
+        )
+        kcl = KCL(self.redpanda)
+        # Test breaks here
+        alter_partition_reassignments_with_kcl(kcl, reassignments)
+
+        all_partition_idx = [p for p in range(self.PARTITION_COUNT + 1)]
+
+        # Test ListPartitionReassignments with specific topic-partitions
+        responses = kcl.list_partition_reassignments({
+            self.topics[0].name:
+            all_partition_idx,
+            self.topics[1].name:
+            all_partition_idx
+        })
+
+        all_node_idx_set = set(all_node_idx)
+        for res in responses:
+            assert res.topic in all_topic_names
+            assert type(res.partition) == int
+            assert res.partition in all_partition_idx
+            assert set(res.replicas).issubset(all_node_idx_set)
+            assert set(res.adding_replicas).issubset(all_node_idx_set)
+            assert set(res.removing_replicas).issubset(all_node_idx_set)
+
+        self.logger.debug("Wait for reassignments to finish")
+
+        # Wait for the reassignment to finish by checking all
+        # in-progress reassignments
+        def reassignments_done():
+            responses = kcl.list_partition_reassignments()
+            self.logger.debug(responses)
+
+            for res in responses:
+                assert res.topic in all_topic_names
+                assert type(res.partition) == int
+                assert res.partition in all_partition_idx
+                assert set(res.replicas).issubset(all_node_idx_set)
+
+                # Retry if any topic_partition has ongoing reassignments
+                if len(res.adding_replicas) > 0 or len(
+                        res.removing_replicas) > 0:
+                    return False
+            return True
+
+        wait_until(reassignments_done, timeout_sec=180, backoff_sec=1)
 
 
 class PartitionReassignmentsACLsTest(RedpandaTest):
