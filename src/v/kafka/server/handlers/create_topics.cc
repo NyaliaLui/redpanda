@@ -1,4 +1,4 @@
-// Copyright 2020 Redpanda Data, Inc.
+// Copyright 2023 Redpanda Data, Inc.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.md
@@ -13,6 +13,7 @@
 #include "cluster/metadata_cache.h"
 #include "cluster/topics_frontend.h"
 #include "config/configuration.h"
+#include "config/constraints.h"
 #include "kafka/protocol/errors.h"
 #include "kafka/protocol/timeout.h"
 #include "kafka/server/handlers/topics/config_map.h"
@@ -22,6 +23,7 @@
 #include "kafka/types.h"
 #include "model/metadata.h"
 #include "security/acl.h"
+#include "ssx/sformat.h"
 #include "utils/to_string.h"
 
 #include <seastar/core/future.hh>
@@ -297,6 +299,22 @@ ss::future<response_ptr> create_topics_handler::handle(
             "Too many partition mutations requested");
       });
     valid_range_end = quota_exceeded_it;
+
+    const auto& constraints = config::shard_local_cfg().constraints();
+    for (const auto& [_, constraint] : constraints) {
+        valid_range_end = validate_requests_range(
+          begin,
+          valid_range_end,
+          std::back_inserter(response.data.topics),
+          error_code::invalid_config,
+          ssx::sformat("Configuration breaks constraint {}", constraint.name),
+          [&constraint](const creatable_topic& t) {
+              auto custom_cfg = to_cluster_type(t);
+              // TODO(@NyaliaLui): Convert the topic config back to
+              // creatable_topic.
+              return config::valid_topic_config(custom_cfg.cfg, constraint);
+          });
+    }
 
     auto to_create = to_cluster_type(begin, valid_range_end);
 

@@ -588,6 +588,19 @@ std::optional<constraint_t> get_constraint(const constraint_t::key_type name) {
 
     return std::nullopt;
 }
+
+bool valid_topic_config(
+  cluster::topic_configuration& topic_cfg, const constraint_t& constraint) {
+    if (!topic_config_satisfies_constraint(topic_cfg, constraint)) {
+        if (constraint.type == constraint_type::restrikt) {
+            return false;
+        } else if (constraint.type == constraint_type::clamp) {
+            constraint_clamp_topic_config(topic_cfg, constraint);
+            return true;
+        }
+    }
+    return true;
+}
 } // namespace config
 
 namespace YAML {

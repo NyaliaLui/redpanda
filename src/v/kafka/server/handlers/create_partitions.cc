@@ -13,6 +13,7 @@
 #include "cluster/metadata_cache.h"
 #include "cluster/topics_frontend.h"
 #include "cluster/types.h"
+#include "config/configuration.h"
 #include "kafka/protocol/errors.h"
 #include "kafka/protocol/schemata/create_partitions_request.h"
 #include "kafka/protocol/schemata/create_partitions_response.h"
@@ -281,6 +282,23 @@ ss::future<response_ptr> create_partitions_handler::handle(
                 return delay == 0ms;
             });
       });
+
+    auto constraint = config::get_constraint("default_topic_partitions");
+    if (constraint) {
+        cluster::topic_configuration topic_cfg;
+        valid_range_end = validate_range(
+          request.data.topics.begin(),
+          valid_range_end,
+          std::back_inserter(resp.data.results),
+          error_code::invalid_config,
+          ssx::sformat("Configuration breaks constraint {}", constraint->name),
+          [&constraint, &topic_cfg](create_partitions_topic& tp) {
+              topic_cfg.partition_count = tp.count;
+              auto valid = config::valid_topic_config(topic_cfg, *constraint);
+              tp.count = topic_cfg.partition_count;
+              return valid;
+          });
+    }
 
     auto results = co_await do_create_partitions(
       ctx,
